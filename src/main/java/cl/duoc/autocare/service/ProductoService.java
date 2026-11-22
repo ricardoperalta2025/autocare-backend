@@ -35,7 +35,7 @@ public class ProductoService {
 
     public List<ProductoResponseDTO> listar() {
         synchronized (categorias) {
-            List<Producto> catalogo = productos.findAll(Sort.by("id"));
+            List<Producto> catalogo = productos.findAll(Sort.by(Producto::id));
             List<ObjectId> ids = catalogo.stream().map(Producto::categoriaId).distinct().toList();
             Map<ObjectId, Categoria> categoriasPorId = categorias.buscarDocumentos(ids).stream()
                     .collect(Collectors.toMap(Categoria::id, Function.identity()));

@@ -28,7 +28,7 @@ public class CategoriaService {
     }
 
     public List<CategoriaResponseDTO> listar() {
-        return categorias.findAll(Sort.by("nombreNormalizado")).stream()
+        return categorias.findAll(Sort.by(Categoria::nombreNormalizado)).stream()
                 .map(this::aRespuesta)
                 .toList();
     }
