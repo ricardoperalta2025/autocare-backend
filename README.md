@@ -38,6 +38,16 @@ curl.exe -i http://127.0.0.1:8080/api/v1/categorias
 curl.exe -i http://127.0.0.1:8080/api/v1/productos
 ```
 
+### Swagger UI y OpenAPI en desarrollo
+
+Con `catalogo-local` activo, abre [Swagger UI](http://127.0.0.1:8080/swagger-ui.html) para ver los grupos **Productos** y **Categorías**. El contrato en JSON está en [OpenAPI](http://127.0.0.1:8080/v3/api-docs). El perfil mantiene la API en `127.0.0.1` y la conexión a Atlas se configura desde `MONGODB_URI`.
+
+1. Expande `GET /api/v1/categorias` o `GET /api/v1/productos`.
+2. Pulsa **Try it out** y después **Execute**. Revisa el estado `200` y el JSON en **Server response**.
+3. Para probar un detalle, copia un ID real del listado y pégalo en el `GET` que pide `{id}`. El listado puede devolver `[]` si la colección está vacía.
+
+Los métodos de escritura incluyen ejemplos de JSON para consultar el contrato. El ejemplo de producto usa un `categoriaId` ficticio. Conserva el alcance de lectura durante la demostración y usa datos autorizados en pruebas de escritura. El perfil normal y `verificar-mongodb` devuelven `404` en las rutas de documentación.
+
 ### Prueba de escritura pendiente de autorización
 
 Los ejemplos siguientes crean, actualizan o eliminan documentos en la base configurada en Atlas. Ejecútalos después de autorizar la prueba controlada, con nombres y códigos reservados para ella.
@@ -100,4 +110,4 @@ Los DTO rechazan campos obligatorios ausentes, precios o stocks negativos, stock
 
 En Atlas, abre el clúster en **Data Explorer**, selecciona la base elegida para AutoCarePro y consulta **Documents** en `categorias` y `productos`. Compara el `_id` de la categoría con el `categoriaId` del producto. Las colecciones y los registros pueden no aparecer hasta una primera escritura autorizada. [Data Explorer de Atlas](https://www.mongodb.com/docs/atlas/atlas-ui/documents/)
 
-Desde PowerShell, `.\mvnw.cmd test` ejecuta JUnit y Spring Boot Test. Los casos del catálogo usan MockMvc con repositorios simulados. La prueba de arranque usa una configuración local de prueba. Para una futura incorporación de Swagger UI, la dependencia propuesta es `org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.1`, según la matriz para Spring Boot 4.1.x. [Compatibilidad de springdoc](https://springdoc.org/#what-is-the-compatibility-matrix-of-springdoc-openapi-with-spring-boot-)
+Desde PowerShell, `.\mvnw.cmd test` ejecuta JUnit y Spring Boot Test. Los casos del catálogo usan MockMvc con repositorios simulados. La prueba de arranque usa una configuración local de prueba. Las pruebas de OpenAPI consultan los tres perfiles por HTTP en puertos locales efímeros. Swagger UI usa `org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.1`, compatible con Spring Boot 4.1.x. [Compatibilidad de springdoc](https://springdoc.org/)
