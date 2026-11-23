@@ -1,7 +1,6 @@
 package cl.duoc.autocare.service;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -22,8 +21,6 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class ProductoService {
-
-    private static final BigDecimal CIEN = BigDecimal.valueOf(100);
 
     private final ProductoRepository productos;
     private final CategoriaService categorias;
@@ -110,16 +107,8 @@ public class ProductoService {
             throw new CatalogoException(HttpStatus.CONFLICT, "El producto tiene una categoría inválida.");
         }
         return new ProductoResponseDTO(producto.id().toHexString(), producto.codigo(), producto.nombre(),
-                producto.descripcion(), producto.precio(), producto.descuento(), calcularPrecioFinal(producto),
+                producto.descripcion(), producto.precio(), producto.descuento(), PrecioProducto.calcularPrecioFinal(producto),
                 producto.stock(), producto.stockCritico(), producto.imagen(),
                 categoria.id().toHexString(), categoria.nombre());
-    }
-
-    private BigDecimal calcularPrecioFinal(Producto producto) {
-        if (producto.descuento().signum() == 0) {
-            return producto.precio();
-        }
-        return producto.precio().multiply(CIEN.subtract(producto.descuento()))
-                .movePointLeft(2).setScale(0, RoundingMode.HALF_UP);
     }
 }

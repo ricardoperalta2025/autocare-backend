@@ -111,3 +111,44 @@ Los DTO rechazan campos obligatorios ausentes, precios o stocks negativos, stock
 En Atlas, abre el clúster en **Data Explorer**, selecciona la base elegida para AutoCarePro y consulta **Documents** en `categorias` y `productos`. Compara el `_id` de la categoría con el `categoriaId` del producto. Las colecciones y los registros pueden no aparecer hasta una primera escritura autorizada. [Data Explorer de Atlas](https://www.mongodb.com/docs/atlas/atlas-ui/documents/)
 
 Desde PowerShell, `.\mvnw.cmd test` ejecuta JUnit y Spring Boot Test. Los casos del catálogo usan MockMvc con repositorios simulados. La prueba de arranque usa una configuración local de prueba. Las pruebas de OpenAPI consultan los tres perfiles por HTTP en puertos locales efímeros. Swagger UI usa `org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.1`, compatible con Spring Boot 4.1.x. [Compatibilidad de springdoc](https://springdoc.org/)
+
+## Órdenes e inventario
+
+Las rutas de compra simulada se habilitan con `catalogo-local`. El servidor calcula el total y devuelve una orden en estado `PROCESANDO` con fecha UTC y un detalle histórico por producto. La solicitud admite un ID MongoDB y una cantidad entera positiva por línea. Los IDs repetidos se rechazan con `400`, incluso si su escritura hexadecimal cambia de mayúsculas a minúsculas.
+
+| Método y ruta | Resultado |
+| --- | --- |
+| `POST /api/v1/ordenes` | `201` con la orden y su cabecera `Location`. `400` por datos inválidos, `404` por producto ausente, `409` por stock insuficiente o conflicto transaccional y `503` si la compra no se puede confirmar. |
+| `GET /api/v1/ordenes/{id}` | `200` con el detalle, `400` por ID inválido o `404` si la orden no existe. |
+| `GET /api/v1/ordenes` | `200` con el listado, de más reciente a más antiguo. |
+
+```json
+{
+  "productos": [
+    { "productoId": "660000000000000000000001", "cantidad": 2 }
+  ]
+}
+```
+
+Cada línea de respuesta incluye `productoId`, `codigo`, `nombre`, `cantidad`, `precioOriginal`, `descuento`, `precioUnitario` y `subtotal`. Con precio original de 35000 y descuento de 20 %, dos unidades producen un subtotal y total de 56000. La API devuelve los importes como números. En MongoDB, `subtotal` y `total` se guardan como cadenas decimales para mantener exactitud incluso cuando la suma supera la precisión de Decimal128.
+
+### Qué asegura la transacción
+
+Spring usa un `MongoTransactionManager` sobre la misma fábrica de conexiones que usan los repositorios y `MongoTemplate`. Valida todo el carrito, aplica un `$inc` negativo por producto con filtro `stock >= cantidad` e inserta la orden en la misma transacción, con lectura `snapshot` y confirmación `majority`. Si un descuento falla o MongoDB rechaza la orden, se abortan los cambios de la transacción. Si la confirmación queda indeterminada, el `503` informa el ID para consultar la orden antes de enviar otra compra. [Transacciones en Spring Data MongoDB](https://docs.spring.io/spring-data/mongodb/reference/mongodb/client-session-transactions.html) · [Atomicidad en MongoDB](https://www.mongodb.com/docs/manual/core/transactions/)
+
+El servidor debe pertenecer a un replica set o clúster compatible con transacciones. Un `mongod` en modo standalone no sirve para esta prueba. Usar la URI de conexión de ese despliegue y preparar las colecciones `productos` y `ordenes` antes de comprar evita depender de la creación de colecciones durante la transacción. La aplicación no crea esas colecciones al arrancar este módulo. [Operaciones de MongoDB en transacciones](https://www.mongodb.com/docs/manual/core/transactions-operations/)
+
+### Probar desde Swagger con una base aislada
+
+1. Usa una instancia local de MongoDB con un replica set de prueba. En una terminal nueva, configura `MONGODB_URI` a esa instancia y una base de demostración independiente, por ejemplo `mongodb://127.0.0.1:27018/autocare_ordenes_demo?replicaSet=rsAutocareTest&directConnection=true`. Usa otro puerto para la aplicación si ya está corriendo una instancia con la conexión de Atlas.
+2. En la base de demostración, crea la colección vacía `ordenes`. Inicia Spring Boot con `catalogo-local` como se indica arriba. En **Categorías** y **Productos** de Swagger, crea una categoría y productos ficticios con stock conocido. El CRUD prepara `productos` al insertar.
+3. En **Órdenes**, usa `POST /api/v1/ordenes` con los IDs de esos productos. Comprueba el `201`, consulta la orden por su ID y vuelve a leer los productos para comparar el stock. Repite con una cantidad superior al stock y confirma el `409`, el inventario y el número de órdenes.
+4. Para probar concurrencia y rollback con MongoDB real, el replica set local debe escuchar en `127.0.0.1:27018` y llamarse `rsAutocareTest`. Ejecuta el caso optativo desde PowerShell.
+
+```powershell
+$env:AUTOCARE_ORDENES_MONGO_LOCAL = 'true'
+.\mvnw.cmd '-Dtest=OrdenTransaccionesMongoTests' test
+Remove-Item Env:AUTOCARE_ORDENES_MONGO_LOCAL
+```
+
+Esa prueba usa una base temporal distinta para cada ejecución. Hace competir dos compras por la última unidad y provoca un rechazo de MongoDB al insertar una orden para verificar el rollback de todos sus productos. La suite habitual usa mocks para verificar la lógica y el flujo transaccional. Habilita una prueba sobre una base de Atlas aislada únicamente después de autorizar la escritura y preparar allí colecciones y productos ficticios.

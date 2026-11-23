@@ -1,9 +1,13 @@
 package cl.duoc.autocare;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 
 import cl.duoc.autocare.controller.CategoriaController;
+import cl.duoc.autocare.controller.OrdenController;
 import cl.duoc.autocare.controller.ProductoController;
+import cl.duoc.autocare.model.Orden;
 import cl.duoc.autocare.model.Producto;
 import org.bson.Document;
 import org.bson.types.Decimal128;
@@ -53,8 +57,31 @@ class AutocareBackendApplicationTests {
     }
 
     @Test
+    void conservaElDetalleDeOrdenYLosImportesMayoresALaPrecisionDecimal128() {
+        ObjectId productoId = new ObjectId();
+        BigDecimal precio = new BigDecimal("9007199254740990.1234567890123456");
+        int cantidad = Integer.MAX_VALUE;
+        BigDecimal subtotal = precio.multiply(BigDecimal.valueOf(cantidad));
+        var detalle = new Orden.Detalle(productoId, "LAB001", "Aceite", cantidad, precio,
+                BigDecimal.ZERO, precio, subtotal);
+        var orden = new Orden(new ObjectId(), Instant.parse("2026-01-01T00:00:00Z"),
+                Orden.Estado.PROCESANDO, List.of(detalle), subtotal);
+        Document bson = new Document();
+
+        mongoTemplate.getConverter().write(orden, bson);
+
+        Document primerDetalle = bson.getList("productos", Document.class).getFirst();
+        assertEquals(productoId, primerDetalle.getObjectId("productoId"));
+        assertInstanceOf(Decimal128.class, primerDetalle.get("precioUnitario"));
+        assertEquals(subtotal.toString(), primerDetalle.getString("subtotal"));
+        assertEquals(subtotal.toString(), bson.getString("total"));
+        assertEquals(orden, mongoTemplate.getConverter().read(Orden.class, bson));
+    }
+
+    @Test
     void mantieneElCrudDeshabilitadoSinElPerfilLocal() {
         assertTrue(contexto.getBeansOfType(ProductoController.class).isEmpty());
         assertTrue(contexto.getBeansOfType(CategoriaController.class).isEmpty());
+        assertTrue(contexto.getBeansOfType(OrdenController.class).isEmpty());
     }
 }

@@ -46,7 +46,8 @@ class OpenApiCatalogoTests {
             assertEquals("AutoCarePro API", documento.at("/info/title").asString());
             assertEquals("1.0", documento.at("/info/version").asString());
             assertEquals(Set.of("/api/v1/productos", "/api/v1/productos/{id}",
-                    "/api/v1/categorias", "/api/v1/categorias/{id}"),
+                    "/api/v1/categorias", "/api/v1/categorias/{id}",
+                    "/api/v1/ordenes", "/api/v1/ordenes/{id}"),
                     Set.copyOf(documento.path("paths").propertyNames()));
 
             verificarRecurso(documento, "productos", "Producto", "Productos", Set.of("204", "400", "404"));
@@ -66,6 +67,24 @@ class OpenApiCatalogoTests {
             assertEquals("^[0-9a-fA-F]{24}$", documento.at("/components/parameters/IdCatalogo/schema/pattern").asString());
             assertEquals("#/components/schemas/ErrorCatalogo", documento.at(
                     "/components/responses/ConflictoCatalogo/content/application~1problem+json/schema/$ref").asString());
+        }
+
+        @Test
+        void documentaOperacionesYDtoDeOrdenes() throws Exception {
+            JsonNode documento = JSON.readTree(consultar(puerto, "/v3/api-docs").body());
+            JsonNode coleccion = documento.path("paths").path("/api/v1/ordenes");
+            JsonNode detalle = documento.path("paths").path("/api/v1/ordenes/{id}");
+            assertEquals(Set.of("get", "post"), Set.copyOf(coleccion.propertyNames()));
+            assertEquals(Set.of("get"), Set.copyOf(detalle.propertyNames()));
+            assertEquals("Órdenes", coleccion.at("/post/tags/0").asString());
+            assertEquals(Set.of("201", "400", "404", "409", "503"),
+                    Set.copyOf(coleccion.at("/post/responses").propertyNames()));
+            assertEquals("#/components/schemas/OrdenRequestDTO",
+                    coleccion.at("/post/requestBody/content/application~1json/schema/$ref").asString());
+            assertEquals("#/components/schemas/OrdenResponseDTO",
+                    coleccion.at("/post/responses/201/content/application~1json/schema/$ref").asString());
+            assertEquals("number", documento.at("/components/schemas/OrdenResponseDTO/properties/total/type").asString());
+            assertEquals(2, coleccion.at("/post/requestBody/content/application~1json/examples/orden/value/productos/0/cantidad").asInt());
         }
 
         @Test
@@ -138,7 +157,8 @@ class OpenApiCatalogoTests {
 
     private static void verificarDocumentacionDeshabilitada(int puerto) throws Exception {
         for (String ruta : Set.of("/v3/api-docs", "/v3/api-docs/swagger-config",
-                "/swagger-ui.html", "/swagger-ui/index.html", "/webjars/swagger-ui/index.html")) {
+                "/swagger-ui.html", "/swagger-ui/index.html", "/webjars/swagger-ui/index.html",
+                "/api/v1/ordenes", "/api/v1/ordenes/660000000000000000000001")) {
             assertEquals(404, consultar(puerto, ruta).statusCode(), ruta);
         }
     }

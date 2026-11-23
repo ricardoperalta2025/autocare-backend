@@ -38,11 +38,13 @@ public class OpenApiConfig {
                                 .description("Mensajes por campo cuando falla la validación.")))
                 .addResponses("DatosInvalidos", respuestaError("La solicitud contiene datos o identificadores inválidos."))
                 .addResponses("RecursoNoEncontrado", respuestaError("El recurso solicitado no existe."))
-                .addResponses("ConflictoCatalogo", respuestaError("La operación entra en conflicto con los datos del catálogo."));
+                .addResponses("ConflictoCatalogo", respuestaError("La operación entra en conflicto con los datos del catálogo."))
+                .addResponses("ConflictoOrden", respuestaError("Stock insuficiente o conflicto con otra operación de inventario."))
+                .addResponses("CompraSinConfirmacion", respuestaError("No se pudo confirmar la compra. Consulta el ID de la orden."));
 
         return new OpenAPI()
                 .info(new Info().title("AutoCarePro API").version("1.0")
-                        .description("API REST para consultar y gestionar productos y categorías de AutoCarePro."))
+                        .description("API REST de productos, categorías y compras simuladas de AutoCarePro."))
                 .components(componentes);
     }
 
