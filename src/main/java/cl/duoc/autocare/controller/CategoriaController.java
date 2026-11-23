@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.bson.types.ObjectId;
@@ -65,6 +66,7 @@ public class CategoriaController {
             headers = @Header(name = "Location", description = "Ruta del recurso creado."))
     @ApiResponse(responseCode = "400", ref = "#/components/responses/DatosInvalidos")
     @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictoCatalogo")
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping
     public ResponseEntity<CategoriaResponseDTO> crear(@Valid @RequestBody CategoriaRequestDTO datos) {
         CategoriaResponseDTO categoria = categorias.crear(datos);
@@ -76,6 +78,7 @@ public class CategoriaController {
     @ApiResponse(responseCode = "400", ref = "#/components/responses/DatosInvalidos")
     @ApiResponse(responseCode = "404", ref = "#/components/responses/RecursoNoEncontrado")
     @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictoCatalogo")
+    @SecurityRequirement(name = "bearerAuth")
     @PutMapping("/{id}")
     public CategoriaResponseDTO actualizar(
             @Parameter(ref = "#/components/parameters/IdCatalogo") @PathVariable ObjectId id,
@@ -88,6 +91,7 @@ public class CategoriaController {
     @ApiResponse(responseCode = "400", ref = "#/components/responses/DatosInvalidos")
     @ApiResponse(responseCode = "404", ref = "#/components/responses/RecursoNoEncontrado")
     @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictoCatalogo")
+    @SecurityRequirement(name = "bearerAuth")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> eliminar(
             @Parameter(ref = "#/components/parameters/IdCatalogo") @PathVariable ObjectId id) {

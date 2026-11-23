@@ -12,6 +12,7 @@ import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.media.StringSchema;
 import io.swagger.v3.oas.models.parameters.Parameter;
 import io.swagger.v3.oas.models.responses.ApiResponse;
+import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -23,6 +24,8 @@ public class OpenApiConfig {
     @Bean
     OpenAPI autoCareProOpenApi() {
         Components componentes = new Components()
+                .addSecuritySchemes("bearerAuth", new SecurityScheme().type(SecurityScheme.Type.HTTP)
+                        .scheme("bearer").bearerFormat("JWT"))
                 .addParameters("IdCatalogo", new Parameter()
                         .name("id").in("path").required(true)
                         .description("Identificador MongoDB de 24 caracteres hexadecimales.")

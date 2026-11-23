@@ -7,6 +7,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import cl.duoc.autocare.JwtDePrueba;
 import cl.duoc.autocare.dto.OrdenRequestDTO;
 import cl.duoc.autocare.dto.OrdenRequestDTO.ProductoSolicitado;
 import cl.duoc.autocare.exception.CatalogoException;
@@ -42,10 +43,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class OrdenTransaccionesMongoTests {
 
+    private static final ObjectId COMPRADOR = new ObjectId();
     private static final String BASE = "autocare_ordenes_test_" + new ObjectId().toHexString();
 
     @DynamicPropertySource
     static void configurarMongoLocal(DynamicPropertyRegistry propiedades) {
+        JwtDePrueba.configurar(propiedades);
         propiedades.add("spring.mongodb.uri", () -> "mongodb://127.0.0.1:27018/" + BASE
                 + "?replicaSet=rsAutocareTest&directConnection=true&serverSelectionTimeoutMS=3000");
     }
@@ -73,7 +76,7 @@ class OrdenTransaccionesMongoTests {
 
         Callable<HttpStatus> comprar = () -> {
             try {
-                compras.crear(new ObjectId(), new OrdenRequestDTO(List.of(linea(ultimo))));
+                compras.crear(new ObjectId(), new OrdenRequestDTO(List.of(linea(ultimo))), COMPRADOR);
                 return HttpStatus.CREATED;
             } catch (CatalogoException error) {
                 return error.estado();
@@ -85,7 +88,7 @@ class OrdenTransaccionesMongoTests {
         assertEquals(1, estados.stream().filter(HttpStatus.CONFLICT::equals).count());
         assertEquals(0, stock(ultimo));
         assertEquals(ordenesAntes + 1, ordenes.count());
-        assertEquals(new BigDecimal("28000"), compras.listar().getFirst().total());
+        assertEquals(new BigDecimal("28000"), compras.listar(null).getFirst().total());
     }
 
     @Test
@@ -97,7 +100,7 @@ class OrdenTransaccionesMongoTests {
         fijarValidadorDeOrdenes(new Document("total", new Document("$exists", false)));
         try {
             var solicitud = new OrdenRequestDTO(List.of(linea(primero), linea(segundo)));
-            CatalogoException error = assertThrows(CatalogoException.class, () -> compras.crear(new ObjectId(), solicitud));
+            CatalogoException error = assertThrows(CatalogoException.class, () -> compras.crear(new ObjectId(), solicitud, COMPRADOR));
             assertEquals(HttpStatus.SERVICE_UNAVAILABLE, error.estado());
 
             assertEquals(2, stock(primero));
@@ -117,7 +120,7 @@ class OrdenTransaccionesMongoTests {
 
         Callable<HttpStatus> comprar = () -> {
             try {
-                compras.crear(clave, solicitud);
+                compras.crear(clave, solicitud, COMPRADOR);
                 return HttpStatus.CREATED;
             } catch (CatalogoException error) {
                 return error.estado();
@@ -129,7 +132,7 @@ class OrdenTransaccionesMongoTests {
         assertTrue(estados.stream().allMatch(estado -> estado == HttpStatus.CREATED
                 || estado == HttpStatus.CONFLICT || estado == HttpStatus.SERVICE_UNAVAILABLE));
 
-        assertEquals(clave.toHexString(), compras.crear(clave, solicitud).id());
+        assertEquals(clave.toHexString(), compras.crear(clave, solicitud, COMPRADOR).id());
         assertEquals(3, stock(producto));
         assertEquals(ordenesAntes + 1, ordenes.count());
     }

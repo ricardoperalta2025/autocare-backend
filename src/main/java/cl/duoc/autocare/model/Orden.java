@@ -16,7 +16,8 @@ public record Orden(
         Instant fechaCreacion,
         Estado estado,
         List<Detalle> productos,
-        @Field(targetType = FieldType.STRING) BigDecimal total
+        @Field(targetType = FieldType.STRING) BigDecimal total,
+        ObjectId compradorId
 ) {
 
     public enum Estado {

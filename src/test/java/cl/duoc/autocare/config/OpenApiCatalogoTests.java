@@ -7,11 +7,14 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Set;
 
+import cl.duoc.autocare.JwtDePrueba;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -30,6 +33,11 @@ class OpenApiCatalogoTests {
     private static final HttpClient HTTP = HttpClient.newHttpClient();
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
+    @DynamicPropertySource
+    static void configurarJwt(DynamicPropertyRegistry propiedades) {
+        JwtDePrueba.configurar(propiedades);
+    }
+
     @Nested
     @ActiveProfiles("catalogo-local")
     class PerfilCatalogoLocal {
@@ -44,10 +52,13 @@ class OpenApiCatalogoTests {
             assertEquals(200, respuesta.statusCode());
             JsonNode documento = JSON.readTree(respuesta.body());
             assertEquals("AutoCarePro API", documento.at("/info/title").asString());
+            assertEquals("bearer", documento.at("/components/securitySchemes/bearerAuth/scheme").asString());
+            assertTrue(documento.path("paths").path("/api/v1/auth/me").at("/get/security/0").has("bearerAuth"));
             assertEquals("1.0", documento.at("/info/version").asString());
             assertEquals(Set.of("/api/v1/productos", "/api/v1/productos/{id}",
                     "/api/v1/categorias", "/api/v1/categorias/{id}",
-                    "/api/v1/ordenes", "/api/v1/ordenes/{id}"),
+                    "/api/v1/ordenes", "/api/v1/ordenes/{id}", "/api/v1/auth/registro",
+                    "/api/v1/auth/login", "/api/v1/auth/me"),
                     Set.copyOf(documento.path("paths").propertyNames()));
 
             verificarRecurso(documento, "productos", "Producto", "Productos", Set.of("204", "400", "404"));
@@ -82,7 +93,7 @@ class OpenApiCatalogoTests {
             assertEquals("header", clave.path("in").asString());
             assertTrue(clave.path("required").asBoolean());
             assertEquals("^[0-9a-fA-F]{24}$", clave.at("/schema/pattern").asString());
-            assertEquals(Set.of("201", "400", "404", "409", "503"),
+            assertEquals(Set.of("201", "400", "401", "403", "404", "409", "503"),
                     Set.copyOf(coleccion.at("/post/responses").propertyNames()));
             assertEquals("#/components/schemas/OrdenRequestDTO",
                     coleccion.at("/post/requestBody/content/application~1json/schema/$ref").asString());

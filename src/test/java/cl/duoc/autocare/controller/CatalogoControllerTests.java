@@ -4,10 +4,12 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
+import cl.duoc.autocare.config.SeguridadConfig;
 import cl.duoc.autocare.model.Categoria;
 import cl.duoc.autocare.model.Producto;
 import cl.duoc.autocare.repository.CategoriaRepository;
 import cl.duoc.autocare.repository.ProductoRepository;
+import cl.duoc.autocare.repository.UsuarioRepository;
 import cl.duoc.autocare.service.CategoriaService;
 import cl.duoc.autocare.service.ProductoService;
 import org.bson.types.ObjectId;
@@ -20,6 +22,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -28,6 +32,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -38,7 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest({ProductoController.class, CategoriaController.class})
 @ActiveProfiles("catalogo-local")
-@Import({ProductoService.class, CategoriaService.class})
+@Import({ProductoService.class, CategoriaService.class, SeguridadConfig.class})
 class CatalogoControllerTests {
 
     private static final String PRODUCTOS = "/api/v1/productos";
@@ -64,8 +69,15 @@ class CatalogoControllerTests {
             }
             """.formatted(ID_CATEGORIA.toHexString());
 
+    private RequestPostProcessor comoAdmin() {
+        return user("admin-de-prueba").roles("ADMIN");
+    }
+
     @Autowired
     private MockMvc mvc;
+
+    @MockitoBean private JwtDecoder jwtDecoder;
+    @MockitoBean private UsuarioRepository usuarios;
 
     @MockitoBean
     private ProductoRepository productos;
@@ -78,7 +90,7 @@ class CatalogoControllerTests {
         Categoria nueva = new Categoria(null, "Aceites", "aceites");
         when(categorias.save(nueva)).thenReturn(CATEGORIA);
 
-        mvc.perform(post(CATEGORIAS).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post(CATEGORIAS).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nombre\":\"  Aceites  \"}"))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", CATEGORIAS + "/" + ID_CATEGORIA))
@@ -108,7 +120,7 @@ class CatalogoControllerTests {
         when(categorias.findById(ID_CATEGORIA)).thenReturn(Optional.of(CATEGORIA));
         when(categorias.save(editada)).thenReturn(editada);
 
-        mvc.perform(put(CATEGORIAS + "/" + ID_CATEGORIA).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put(CATEGORIAS + "/" + ID_CATEGORIA).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nombre\":\"Aceites de motor\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(ID_CATEGORIA.toHexString()))
@@ -121,7 +133,7 @@ class CatalogoControllerTests {
     void eliminaCategoriaSinProductos() throws Exception {
         when(categorias.findById(ID_CATEGORIA)).thenReturn(Optional.of(CATEGORIA));
 
-        mvc.perform(delete(CATEGORIAS + "/" + ID_CATEGORIA))
+        mvc.perform(delete(CATEGORIAS + "/" + ID_CATEGORIA).with(comoAdmin()))
                 .andExpect(status().isNoContent());
 
         verify(categorias).deleteById(ID_CATEGORIA);
@@ -132,7 +144,7 @@ class CatalogoControllerTests {
         when(categorias.findById(ID_CATEGORIA)).thenReturn(Optional.of(CATEGORIA));
         when(productos.existsByCategoriaId(ID_CATEGORIA)).thenReturn(true);
 
-        mvc.perform(delete(CATEGORIAS + "/" + ID_CATEGORIA))
+        mvc.perform(delete(CATEGORIAS + "/" + ID_CATEGORIA).with(comoAdmin()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value("La categoría tiene productos asociados."));
 
@@ -141,7 +153,7 @@ class CatalogoControllerTests {
 
     @Test
     void rechazaCategoriaSinNombre() throws Exception {
-        mvc.perform(post(CATEGORIAS).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post(CATEGORIAS).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nombre\":\"   \"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.campos.nombre").exists());
@@ -153,7 +165,7 @@ class CatalogoControllerTests {
     void detectaNombreDuplicadoAunqueCambienMayusculasYEspacios() throws Exception {
         when(categorias.findByNombreNormalizado("aceites")).thenReturn(Optional.of(CATEGORIA));
 
-        mvc.perform(post(CATEGORIAS).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post(CATEGORIAS).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nombre\":\"  ACEITES \"}"))
                 .andExpect(status().isConflict());
 
@@ -164,10 +176,10 @@ class CatalogoControllerTests {
     void informaCuandoLaCategoriaNoExiste() throws Exception {
         mvc.perform(get(CATEGORIAS + "/" + ID_CATEGORIA))
                 .andExpect(status().isNotFound());
-        mvc.perform(put(CATEGORIAS + "/" + ID_CATEGORIA).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put(CATEGORIAS + "/" + ID_CATEGORIA).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nombre\":\"Aceites\"}"))
                 .andExpect(status().isNotFound());
-        mvc.perform(delete(CATEGORIAS + "/" + ID_CATEGORIA))
+        mvc.perform(delete(CATEGORIAS + "/" + ID_CATEGORIA).with(comoAdmin()))
                 .andExpect(status().isNotFound());
     }
 
@@ -179,7 +191,7 @@ class CatalogoControllerTests {
                 new BigDecimal("35000"), new BigDecimal("20"), 24, 5, "/images/Aceite.png", ID_CATEGORIA);
         when(productos.save(nuevo)).thenReturn(PRODUCTO);
 
-        mvc.perform(post(PRODUCTOS).contentType(MediaType.APPLICATION_JSON).content(DATOS_PRODUCTO))
+        mvc.perform(post(PRODUCTOS).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON).content(DATOS_PRODUCTO))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", PRODUCTOS + "/" + ID_PRODUCTO))
                 .andExpect(jsonPath("$.id").value(ID_PRODUCTO.toHexString()))
@@ -204,7 +216,7 @@ class CatalogoControllerTests {
                 {"codigo":"ACE001","nombre":"Aceite","precio":12.50,"stock":0,"categoriaId":"%s"}
                 """.formatted(ID_CATEGORIA.toHexString());
 
-        mvc.perform(post(PRODUCTOS).contentType(MediaType.APPLICATION_JSON).content(datosMinimos))
+        mvc.perform(post(PRODUCTOS).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON).content(datosMinimos))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.precioFinal").value(12.50))
                 .andExpect(jsonPath("$.descuento").value(0))
@@ -236,7 +248,7 @@ class CatalogoControllerTests {
         when(categorias.findById(ID_CATEGORIA)).thenReturn(Optional.of(CATEGORIA));
         when(productos.save(any(Producto.class))).thenAnswer(invocacion -> invocacion.getArgument(0));
 
-        mvc.perform(put(PRODUCTOS + "/" + ID_PRODUCTO).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put(PRODUCTOS + "/" + ID_PRODUCTO).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content(DATOS_PRODUCTO.replace("\"stock\": 24", "\"stock\": 8")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(ID_PRODUCTO.toHexString()))
@@ -249,7 +261,7 @@ class CatalogoControllerTests {
         when(categorias.findById(ID_CATEGORIA)).thenReturn(Optional.of(CATEGORIA));
         when(productos.save(any(Producto.class))).thenAnswer(invocacion -> invocacion.getArgument(0));
 
-        mvc.perform(put(PRODUCTOS + "/" + ID_PRODUCTO).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put(PRODUCTOS + "/" + ID_PRODUCTO).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content(DATOS_PRODUCTO.replace("\"descuento\": 20,", "")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.descuento").value(20))
@@ -260,7 +272,7 @@ class CatalogoControllerTests {
     void eliminaProductoExistente() throws Exception {
         when(productos.findById(ID_PRODUCTO)).thenReturn(Optional.of(PRODUCTO));
 
-        mvc.perform(delete(PRODUCTOS + "/" + ID_PRODUCTO))
+        mvc.perform(delete(PRODUCTOS + "/" + ID_PRODUCTO).with(comoAdmin()))
                 .andExpect(status().isNoContent());
 
         verify(productos).deleteById(ID_PRODUCTO);
@@ -270,16 +282,16 @@ class CatalogoControllerTests {
     void informaCuandoElProductoNoExiste() throws Exception {
         mvc.perform(get(PRODUCTOS + "/" + ID_PRODUCTO))
                 .andExpect(status().isNotFound());
-        mvc.perform(put(PRODUCTOS + "/" + ID_PRODUCTO).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put(PRODUCTOS + "/" + ID_PRODUCTO).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content(DATOS_PRODUCTO))
                 .andExpect(status().isNotFound());
-        mvc.perform(delete(PRODUCTOS + "/" + ID_PRODUCTO))
+        mvc.perform(delete(PRODUCTOS + "/" + ID_PRODUCTO).with(comoAdmin()))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     void rechazaProductoSinCamposObligatorios() throws Exception {
-        mvc.perform(post(PRODUCTOS).contentType(MediaType.APPLICATION_JSON).content("{}"))
+        mvc.perform(post(PRODUCTOS).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.campos.codigo").exists())
                 .andExpect(jsonPath("$.campos.nombre").exists())
@@ -295,7 +307,7 @@ class CatalogoControllerTests {
         mvc.perform(get(PRODUCTOS + "/id-invalido"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").exists());
-        mvc.perform(post(PRODUCTOS).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post(PRODUCTOS).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content(DATOS_PRODUCTO.replace(ID_CATEGORIA.toHexString(), "id-invalido")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.campos.categoriaId").exists());
@@ -306,7 +318,7 @@ class CatalogoControllerTests {
     void rechazaValoresFueraDeRango(String campo, int valor) throws Exception {
         String cuerpo = DATOS_PRODUCTO.replaceFirst("\"" + campo + "\": [0-9]+", "\"" + campo + "\": " + valor);
 
-        mvc.perform(post(PRODUCTOS).contentType(MediaType.APPLICATION_JSON).content(cuerpo))
+        mvc.perform(post(PRODUCTOS).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON).content(cuerpo))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.campos." + campo).exists());
 
@@ -315,7 +327,7 @@ class CatalogoControllerTests {
 
     @Test
     void rechazaStockFraccionario() throws Exception {
-        mvc.perform(post(PRODUCTOS).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post(PRODUCTOS).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content(DATOS_PRODUCTO.replace("\"stock\": 24", "\"stock\": 24.5")))
                 .andExpect(status().isBadRequest());
 
@@ -324,7 +336,7 @@ class CatalogoControllerTests {
 
     @Test
     void rechazaProductoConCategoriaInexistente() throws Exception {
-        mvc.perform(post(PRODUCTOS).contentType(MediaType.APPLICATION_JSON).content(DATOS_PRODUCTO))
+        mvc.perform(post(PRODUCTOS).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON).content(DATOS_PRODUCTO))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value("La categoría indicada no existe."));
 
@@ -335,7 +347,7 @@ class CatalogoControllerTests {
     void rechazaCodigoDuplicadoAunqueCambienMayusculasYEspacios() throws Exception {
         when(productos.findByCodigoNormalizado("ACE001")).thenReturn(Optional.of(PRODUCTO));
 
-        mvc.perform(post(PRODUCTOS).contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post(PRODUCTOS).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON)
                         .content(DATOS_PRODUCTO.replace("ACE001", "  ace001 ")))
                 .andExpect(status().isConflict());
 
@@ -347,7 +359,7 @@ class CatalogoControllerTests {
         when(categorias.findById(ID_CATEGORIA)).thenReturn(Optional.of(CATEGORIA));
         when(productos.save(any(Producto.class))).thenThrow(new DuplicateKeyException("Detalle interno"));
 
-        mvc.perform(post(PRODUCTOS).contentType(MediaType.APPLICATION_JSON).content(DATOS_PRODUCTO))
+        mvc.perform(post(PRODUCTOS).with(comoAdmin()).contentType(MediaType.APPLICATION_JSON).content(DATOS_PRODUCTO))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value("Ya existe un producto con ese código."));
     }

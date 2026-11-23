@@ -3,6 +3,7 @@ package cl.duoc.autocare.exception;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import cl.duoc.autocare.controller.AuthController;
 import cl.duoc.autocare.controller.CategoriaController;
 import cl.duoc.autocare.controller.OrdenController;
 import cl.duoc.autocare.controller.ProductoController;
@@ -14,7 +15,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
-@RestControllerAdvice(assignableTypes = {ProductoController.class, CategoriaController.class, OrdenController.class})
+@RestControllerAdvice(assignableTypes = {ProductoController.class, CategoriaController.class, OrdenController.class, AuthController.class})
 public class CatalogoExceptionHandler {
 
     @ExceptionHandler(CatalogoException.class)

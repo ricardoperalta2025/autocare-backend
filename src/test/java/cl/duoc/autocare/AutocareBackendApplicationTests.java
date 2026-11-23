@@ -65,7 +65,7 @@ class AutocareBackendApplicationTests {
         var detalle = new Orden.Detalle(productoId, "LAB001", "Aceite", cantidad, precio,
                 BigDecimal.ZERO, precio, subtotal);
         var orden = new Orden(new ObjectId(), Instant.parse("2026-01-01T00:00:00Z"),
-                Orden.Estado.PROCESANDO, List.of(detalle), subtotal);
+                Orden.Estado.PROCESANDO, List.of(detalle), subtotal, null);
         Document bson = new Document();
 
         mongoTemplate.getConverter().write(orden, bson);

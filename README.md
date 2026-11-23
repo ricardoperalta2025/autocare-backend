@@ -21,7 +21,7 @@ Cada recurso ofrece `GET` y `POST` en `/api/v1/productos` o `/api/v1/categorias`
 
 ## Ejecutar el catálogo con MongoDB Atlas desde Windows
 
-Abre la terminal PowerShell donde ya está configurada la variable de entorno privada `MONGODB_URI`. Desde `autocare-backend`, inicia Spring Boot con el perfil `catalogo-local`.
+Abre la terminal PowerShell donde están configuradas las variables privadas `MONGODB_URI` y `JWT_SECRET_BASE64`. Consulta la sección de autenticación para generar una clave local. Desde `autocare-backend`, inicia Spring Boot con el perfil `catalogo-local`.
 
 ```powershell
 .\mvnw.cmd '-Dspring-boot.run.profiles=catalogo-local' `
@@ -50,11 +50,13 @@ Los métodos de escritura incluyen ejemplos de JSON para consultar el contrato. 
 
 ### Prueba de escritura pendiente de autorización
 
-Los ejemplos siguientes crean, actualizan o eliminan documentos en la base configurada en Atlas. Ejecútalos después de autorizar la prueba controlada, con nombres y códigos reservados para ella.
+Los ejemplos siguientes crean, actualizan o eliminan documentos en la base configurada en Atlas. Ejecútalos después de autorizar la prueba controlada, con nombres y códigos reservados para ella. Inicia sesión con una cuenta ADMIN y coloca su JWT en la variable de sesión `$cabecerasAdmin`.
 
 ```powershell
 $api = 'http://127.0.0.1:8080/api/v1'
-$categoria = Invoke-RestMethod -Method Post -Uri "$api/categorias" -ContentType 'application/json' -Body '{"nombre":"Aceites prueba"}'
+$tokenAdmin = [System.Net.NetworkCredential]::new('', (Read-Host 'JWT del administrador' -AsSecureString)).Password
+$cabecerasAdmin = @{ Authorization = ('Bearer ' + $tokenAdmin) }
+$categoria = Invoke-RestMethod -Method Post -Headers $cabecerasAdmin -Uri "$api/categorias" -ContentType 'application/json' -Body '{"nombre":"Aceites prueba"}'
 $datosProducto = @{
     codigo = 'ACE-PRUEBA'
     nombre = 'Aceite sintetico de prueba'
@@ -66,10 +68,10 @@ $datosProducto = @{
     imagen = '/images/Aceite.png'
     categoriaId = $categoria.id
 }
-$producto = Invoke-RestMethod -Method Post -Uri "$api/productos" -ContentType 'application/json' -Body ($datosProducto | ConvertTo-Json)
+$producto = Invoke-RestMethod -Method Post -Headers $cabecerasAdmin -Uri "$api/productos" -ContentType 'application/json' -Body ($datosProducto | ConvertTo-Json)
 Invoke-RestMethod -Uri "$api/productos/$($producto.id)"
 $datosProducto.stock = 20
-Invoke-RestMethod -Method Put -Uri "$api/productos/$($producto.id)" -ContentType 'application/json' -Body ($datosProducto | ConvertTo-Json)
+Invoke-RestMethod -Method Put -Headers $cabecerasAdmin -Uri "$api/productos/$($producto.id)" -ContentType 'application/json' -Body ($datosProducto | ConvertTo-Json)
 ```
 
 El producto creado devuelve un JSON similar a este. Los IDs de ejemplo representan cadenas generadas por MongoDB.
@@ -94,8 +96,8 @@ El producto creado devuelve un JSON similar a este. Los IDs de ejemplo represent
 Si intentas eliminar la categoría antes del producto, la API debe responder `409`. Eliminar primero el producto y después la categoría de prueba devuelve `204` en cada caso.
 
 ```powershell
-Invoke-RestMethod -Method Delete -Uri "$api/productos/$($producto.id)"
-Invoke-RestMethod -Method Delete -Uri "$api/categorias/$($categoria.id)"
+Invoke-RestMethod -Method Delete -Headers $cabecerasAdmin -Uri "$api/productos/$($producto.id)"
+Invoke-RestMethod -Method Delete -Headers $cabecerasAdmin -Uri "$api/categorias/$($categoria.id)"
 ```
 
 ## Índices y validaciones
@@ -112,15 +114,70 @@ En Atlas, abre el clúster en **Data Explorer**, selecciona la base elegida para
 
 Desde PowerShell, `.\mvnw.cmd test` ejecuta JUnit y Spring Boot Test. Los casos del catálogo usan MockMvc con repositorios simulados. La prueba de arranque usa una configuración local de prueba. Las pruebas de OpenAPI consultan los tres perfiles por HTTP en puertos locales efímeros. Swagger UI usa `org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.1`, compatible con Spring Boot 4.1.x. [Compatibilidad de springdoc](https://springdoc.org/)
 
+## Autenticación y roles
+
+La API usa Spring Security y JWT en el perfil `catalogo-local`. La clave es compartida únicamente por instancias autorizadas del backend. Spring valida la firma HS256, el emisor, la audiencia y la expiración. Cada petición con token consulta la cuenta por el identificador del JWT y usa el rol y estado vigentes de MongoDB. Las contraseñas se guardan como hashes BCrypt con sal aleatoria y se comprueban con `PasswordEncoder.matches`. [JWT en Spring Security](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html)
+
+| Solicitud | Resultado |
+| --- | --- |
+| `POST /api/v1/auth/registro` | `201` con la identidad CLIENTE. `400` por datos inválidos, `409` por correo duplicado y `503` si la unicidad aún no está disponible. |
+| `POST /api/v1/auth/login` | `200` con `token`, `tipo`, `expiraEnSegundos` y `usuario`. `401` por credenciales inválidas o cuenta inactiva. |
+| `GET /api/v1/auth/me` | `200` con `id`, `nombre`, `correo` y `rol`. Requiere `Authorization: Bearer <JWT>`. |
+
+```json
+{"nombre":"Cliente de demostración","correo":"cliente@example.test","contrasena":"<valor-privado-de-prueba>"}
+```
+
+El login recibe solo `correo` y `contrasena`. En Swagger, copia el valor de `token` a **Authorize → bearerAuth** para las operaciones protegidas. La sesión queda del lado del cliente y la respuesta de login lleva `Cache-Control: no-store`.
+
+| Operación | Anónimo | ADMIN | VENDEDOR | CLIENTE |
+| --- | --- | --- | --- | --- |
+| Leer catálogo, categorías y detalles | Sí | Sí | Sí | Sí |
+| Crear, editar o eliminar productos y categorías | 401 | Sí | 403 | 403 |
+| Crear órdenes | 401 | Sí, con su identidad | 403 | Sí |
+| Leer órdenes | 401 | Todas | Todas | Propias |
+| `GET /api/v1/auth/me` | 401 | Sí | Sí | Sí |
+
+La colección `ordenes` guarda `compradorId` en las compras nuevas a partir del principal autenticado. El cliente obtiene `404` para una orden ajena o inexistente. Reutilizar la clave de otro comprador devuelve `403`, incluso si coinciden los productos y cantidades. El personal puede consultar órdenes históricas sin comprador. Esos documentos conservan su estado histórico.
+
+### Configurar el entorno
+
+`MONGODB_URI` apunta a la base autorizada. `JWT_SECRET_BASE64` contiene una clave aleatoria de al menos 32 bytes codificada en Base64. `JWT_EXPIRACION` es una duración ISO 8601 y su valor predeterminado es `PT30M`. Genera la clave en la misma terminal PowerShell donde iniciarás Spring Boot. Esta asignación conserva el valor en el entorno de la terminal.
+
+```powershell
+$bytesJwt = [byte[]]::new(32)
+$aleatorioJwt = [Security.Cryptography.RandomNumberGenerator]::Create()
+try { $aleatorioJwt.GetBytes($bytesJwt) } finally { $aleatorioJwt.Dispose() }
+$env:JWT_SECRET_BASE64 = [Convert]::ToBase64String($bytesJwt)
+$env:JWT_EXPIRACION = 'PT30M'
+```
+
+### Preparar tres cuentas de demostración
+
+1. Tras autorizar las escrituras, usa una base de demostración y crea el índice único de `usuarios.correoNormalizado`. Con la creación automática de índices deshabilitada, el registro comprueba que exista y devuelve `503` si falta. Verifica que el índice tenga `unique: true`, sin filtro parcial ni opción sparse. [Índices únicos de MongoDB](https://www.mongodb.com/docs/manual/core/index-unique/)
+2. Registra tres cuentas con correos de prueba distintos y contraseñas distintas generadas fuera del repositorio. Las tres se crean como CLIENTE.
+3. Desde Data Explorer con una cuenta autorizada, identifica por `_id` y correo normalizado las dos cuentas designadas. Cambia únicamente `rol` a `ADMIN` y `VENDEDOR` respectivamente. Conserva la tercera como `CLIENTE` y el hash creado por el registro en las tres.
+4. Inicia sesión con cada cuenta y valida su rol con `/api/v1/auth/me`. Comprueba las operaciones de la matriz con productos temporales y solicita nuevamente el token si vence.
+
+```javascript
+// Ejecutar únicamente en la base de demostración autorizada.
+db.usuarios.createIndex({ correoNormalizado: 1 }, { unique: true, name: "correo_normalizado_unico" })
+db.usuarios.getIndexes()
+```
+
+### Integración React de la etapa 5B
+
+Conecta login y registro al backend, restaura la identidad con `/auth/me` y maneja `401` como sesión vencida o inválida y `403` como falta de permiso. Envía el Bearer en rutas protegidas. El proxy de Vite deberá admitir los dos POST de autenticación y las rutas administrativas exactas que integre React. Mantén el intento de compra ligado al ID del comprador autenticado y reutiliza el mismo `Idempotency-Key` y JSON al recuperarlo. Para órdenes ajenas, la autorización se resuelve siempre en Spring Boot. La documentación de esta etapa conserva el envío real de React bajo su configuración de prueba.
+
 ## Órdenes e inventario
 
 Las rutas de compra simulada se habilitan con `catalogo-local`. El servidor calcula el total y devuelve una orden en estado `PROCESANDO` con fecha UTC y un detalle histórico por producto. La solicitud admite un ID MongoDB y una cantidad entera positiva por línea. Los IDs repetidos se rechazan con `400`, incluso si su escritura hexadecimal cambia de mayúsculas a minúsculas.
 
 | Método y ruta | Resultado |
 | --- | --- |
-| `POST /api/v1/ordenes` | `201` con la orden y su cabecera `Location`, también al repetir una compra confirmada. `400` por clave ausente o inválida o por datos inválidos, `404` por producto ausente, `409` por stock insuficiente, conflicto de escritura o reutilizar la clave con otros datos, y `503` si la compra no se puede confirmar. |
-| `GET /api/v1/ordenes/{id}` | `200` con el detalle, `400` por ID inválido o `404` si la orden no existe. |
-| `GET /api/v1/ordenes` | `200` con el listado, de más reciente a más antiguo. |
+| `POST /api/v1/ordenes` | Requiere Bearer ADMIN o CLIENTE. `201` con la orden y su cabecera `Location`, también al repetir una compra confirmada. `400` por clave ausente o inválida o por datos inválidos, `404` por producto ausente, `409` por stock insuficiente, conflicto de escritura o reutilizar la clave con otros datos, y `503` si la compra no se puede confirmar. |
+| `GET /api/v1/ordenes/{id}` | Requiere Bearer. `200` con el detalle, `400` por ID inválido o `404` si la orden no existe. |
+| `GET /api/v1/ordenes` | Requiere Bearer. `200` con el listado, de más reciente a más antiguo. |
 
 ```json
 {
@@ -150,7 +207,7 @@ El servidor debe pertenecer a un replica set o clúster compatible con transacci
 
 1. Usa una instancia local de MongoDB con un replica set de prueba. En una terminal nueva, configura `MONGODB_URI` a esa instancia y una base de demostración independiente, por ejemplo `mongodb://127.0.0.1:27018/autocare_ordenes_demo?replicaSet=rsAutocareTest&directConnection=true`. Usa otro puerto para la aplicación si ya está corriendo una instancia con la conexión de Atlas.
 2. En la base de demostración, crea la colección vacía `ordenes`. Inicia Spring Boot con `catalogo-local` como se indica arriba. En **Categorías** y **Productos** de Swagger, crea una categoría y productos ficticios con stock conocido. El CRUD prepara `productos` al insertar.
-3. En **Órdenes**, crea una compra con la cabecera `Idempotency-Key` y el ID de un producto ficticio con stock 5. Pide dos unidades y comprueba el `201`, el `Location` y stock 3. Repite la misma cabecera y el mismo cuerpo. Debes ver la misma orden y stock 3. Conserva la cabecera, cambia la cantidad a una unidad y comprueba el `409` y que siga existiendo una sola orden para esa clave.
+3. Autoriza Swagger con el JWT de la cuenta que hará la compra. En **Órdenes**, crea una compra con la cabecera `Idempotency-Key` y el ID de un producto ficticio con stock 5. Pide dos unidades y comprueba el `201`, el `Location` y stock 3. Repite la misma cabecera y el mismo cuerpo. Debes ver la misma orden y stock 3. Conserva la cabecera, cambia la cantidad a una unidad y comprueba el `409` y que siga existiendo una sola orden para esa clave.
 4. Si necesitas comprobar un rechazo por stock insuficiente, usa una clave nueva y pide más unidades que el stock disponible. Espera `409`. En Atlas usa únicamente productos temporales y realiza la prueba y la limpieza después de autorizar las escrituras.
 5. Para probar concurrencia y rollback con MongoDB real, el replica set local debe escuchar en `127.0.0.1:27018` y llamarse `rsAutocareTest`. Ejecuta el caso optativo desde PowerShell.
 
