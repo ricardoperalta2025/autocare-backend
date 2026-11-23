@@ -1,8 +1,10 @@
 package cl.duoc.autocare.service;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import cl.duoc.autocare.dto.OrdenRequestDTO;
 import cl.duoc.autocare.dto.OrdenRequestDTO.ProductoSolicitado;
@@ -12,6 +14,8 @@ import cl.duoc.autocare.model.Producto;
 import cl.duoc.autocare.repository.OrdenRepository;
 import cl.duoc.autocare.repository.ProductoRepository;
 import com.mongodb.MongoException;
+import com.mongodb.ReadConcern;
+import com.mongodb.ReadPreference;
 import com.mongodb.client.result.UpdateResult;
 import org.bson.Document;
 import org.bson.types.ObjectId;
@@ -22,6 +26,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.UpdateDefinition;
@@ -46,6 +51,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class OrdenServiceTests {
 
+    private static final ObjectId CLAVE_COMPRA = new ObjectId("6600000000000000000000b1");
     private static final ObjectId ACEITE = new ObjectId("6600000000000000000000a1");
     private static final ObjectId FILTRO = new ObjectId("6600000000000000000000a2");
 
@@ -64,9 +70,9 @@ class OrdenServiceTests {
                 .thenReturn(UpdateResult.acknowledged(1, 1L, null));
         when(ordenes.insert(any(Orden.class))).thenAnswer(invocacion -> invocacion.getArgument(0));
 
-        var respuesta = servicio().crear(solicitud(linea(ACEITE, 2), linea(FILTRO, 1)));
+        var respuesta = servicio().crear(CLAVE_COMPRA, solicitud(linea(ACEITE, 2), linea(FILTRO, 1)));
 
-        assertTrue(ObjectId.isValid(respuesta.id()));
+        assertEquals(CLAVE_COMPRA.toHexString(), respuesta.id());
         assertEquals(Orden.Estado.PROCESANDO, respuesta.estado());
         assertEquals(new BigDecimal("68000"), respuesta.total());
         assertEquals(new BigDecimal("35000"), respuesta.productos().getFirst().precioOriginal());
@@ -81,6 +87,7 @@ class OrdenServiceTests {
         ArgumentCaptor<UpdateDefinition> descuentos = ArgumentCaptor.forClass(UpdateDefinition.class);
         InOrder secuencia = inOrder(gestor, productos, mongo, ordenes);
         secuencia.verify(gestor).getTransaction(any());
+        secuencia.verify(ordenes).findById(CLAVE_COMPRA);
         secuencia.verify(productos).findById(ACEITE);
         secuencia.verify(productos).findById(FILTRO);
         secuencia.verify(mongo, times(2))
@@ -101,7 +108,7 @@ class OrdenServiceTests {
                 .thenReturn(UpdateResult.acknowledged(1, 1L, null));
         when(ordenes.insert(any(Orden.class))).thenAnswer(invocacion -> invocacion.getArgument(0));
 
-        var respuesta = servicio().crear(solicitud(linea(ACEITE, 2)));
+        var respuesta = servicio().crear(CLAVE_COMPRA, solicitud(linea(ACEITE, 2)));
 
         assertEquals(new BigDecimal("3"), respuesta.productos().getFirst().precioUnitario());
         assertEquals(new BigDecimal("6"), respuesta.total());
@@ -115,7 +122,8 @@ class OrdenServiceTests {
 
         verificarEstado(HttpStatus.NOT_FOUND, solicitud(linea(ACEITE, 1), linea(FILTRO, 1)));
 
-        verifyNoInteractions(mongo, ordenes);
+        verifyNoInteractions(mongo);
+        verify(ordenes, never()).insert(any(Orden.class));
         verify(gestor).rollback(transaccion);
     }
 
@@ -126,7 +134,8 @@ class OrdenServiceTests {
 
         verificarEstado(HttpStatus.CONFLICT, solicitud(linea(ACEITE, 1)));
 
-        verifyNoInteractions(mongo, ordenes);
+        verifyNoInteractions(mongo);
+        verify(ordenes, never()).insert(any(Orden.class));
         verify(gestor).rollback(transaccion);
     }
 
@@ -158,7 +167,7 @@ class OrdenServiceTests {
 
         verificarEstado(HttpStatus.CONFLICT, solicitud(linea(ACEITE, 1), linea(FILTRO, 1)));
 
-        verifyNoInteractions(ordenes);
+        verify(ordenes, never()).insert(any(Orden.class));
         verify(gestor).rollback(transaccion);
         verify(gestor, never()).commit(any());
     }
@@ -191,7 +200,7 @@ class OrdenServiceTests {
 
         verificarEstado(HttpStatus.CONFLICT, solicitud(linea(ACEITE, 1)));
 
-        verifyNoInteractions(ordenes);
+        verify(ordenes, never()).insert(any(Orden.class));
         verify(gestor).rollback(transaccion);
     }
 
@@ -206,7 +215,7 @@ class OrdenServiceTests {
 
         verificarEstado(HttpStatus.SERVICE_UNAVAILABLE, solicitud(linea(ACEITE, 1)));
 
-        verifyNoInteractions(ordenes);
+        verify(ordenes, never()).insert(any(Orden.class));
         verify(gestor).rollback(transaccion);
         verify(gestor, never()).commit(any());
     }
@@ -232,9 +241,112 @@ class OrdenServiceTests {
 
     @Test
     void devuelve404AlBuscarUnaOrdenInexistente() {
-        when(ordenes.findById(ACEITE)).thenReturn(Optional.empty());
         CatalogoException error = assertThrows(CatalogoException.class, () -> servicio().buscar(ACEITE));
         assertEquals(HttpStatus.NOT_FOUND, error.estado());
+    }
+
+    @Test
+    void reenvioEquivalenteDevuelveLaInstantaneaSinVolverADescontarStock() {
+        iniciarTransaccion();
+        cuandoExiste(ACEITE, "ACE-TEST", "Aceite", "35000", "20", 4);
+        cuandoExiste(FILTRO, "FIL-TEST", "Filtro", "12000", "0", 4);
+        when(mongo.updateFirst(any(Query.class), any(UpdateDefinition.class), eq(Producto.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
+        AtomicReference<Orden> guardada = new AtomicReference<>();
+        when(ordenes.findById(CLAVE_COMPRA)).thenAnswer(invocacion -> Optional.ofNullable(guardada.get()));
+        when(ordenes.insert(any(Orden.class))).thenAnswer(invocacion -> {
+            Orden orden = invocacion.getArgument(0);
+            guardada.set(orden);
+            return orden;
+        });
+
+        var primera = servicio().crear(CLAVE_COMPRA, solicitud(linea(ACEITE, 2), linea(FILTRO, 1)));
+        var repetida = servicio().crear(CLAVE_COMPRA, solicitud(linea(FILTRO, 1),
+                new ProductoSolicitado("6600000000000000000000A1", 2)));
+
+        assertEquals(primera, repetida);
+        verify(productos).findById(ACEITE);
+        verify(productos).findById(FILTRO);
+        verify(mongo, times(2)).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(Producto.class));
+        verify(ordenes).insert(any(Orden.class));
+    }
+
+    @Test
+    void mismaClaveConOtraCantidadUOtroProductoDevuelve409SinTocarInventario() {
+        iniciarTransaccion();
+        when(ordenes.findById(CLAVE_COMPRA)).thenReturn(Optional.of(ordenExistente()));
+
+        var errorCantidad = verificarEstado(HttpStatus.CONFLICT, solicitud(linea(ACEITE, 2)));
+        var errorProducto = verificarEstado(HttpStatus.CONFLICT, solicitud(linea(FILTRO, 1)));
+
+        assertTrue(errorCantidad.getMessage().contains("Idempotency-Key"));
+        assertEquals(errorCantidad.getMessage(), errorProducto.getMessage());
+        verifyNoInteractions(productos, mongo);
+        verify(ordenes, never()).insert(any(Orden.class));
+    }
+
+    @Test
+    void claveDuplicadaDuranteElInsertRevierteLaTransaccionYRecuperaLaOrdenConfirmada() {
+        iniciarTransaccion();
+        cuandoExiste(ACEITE, "ACE-TEST", "Aceite", "100", "0", 3);
+        when(mongo.updateFirst(any(Query.class), any(UpdateDefinition.class), eq(Producto.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
+        when(ordenes.insert(any(Orden.class))).thenThrow(new DuplicateKeyException("_id ya utilizado."));
+        when(mongo.findOne(any(Query.class), eq(Orden.class))).thenReturn(ordenExistente());
+
+        var respuesta = servicio().crear(CLAVE_COMPRA, solicitud(linea(ACEITE, 1)));
+
+        assertEquals(CLAVE_COMPRA.toHexString(), respuesta.id());
+        assertEquals(new BigDecimal("28000"), respuesta.total());
+        ArgumentCaptor<Query> filtro = ArgumentCaptor.forClass(Query.class);
+        InOrder secuencia = inOrder(gestor, mongo);
+        secuencia.verify(gestor).rollback(transaccion);
+        secuencia.verify(mongo).findOne(filtro.capture(), eq(Orden.class));
+        assertEquals(CLAVE_COMPRA, filtro.getValue().getQueryObject().getObjectId("_id"));
+        assertEquals(ReadConcern.MAJORITY, filtro.getValue().getReadConcern());
+        assertEquals(ReadPreference.primary(), filtro.getValue().getReadPreference());
+        verify(gestor, never()).commit(any());
+    }
+
+    @Test
+    void commitInciertoConOrdenVisiblePorMayoriaDevuelveSuConfirmacion() {
+        iniciarTransaccion();
+        cuandoExiste(ACEITE, "ACE-TEST", "Aceite", "100", "0", 2);
+        when(mongo.updateFirst(any(Query.class), any(UpdateDefinition.class), eq(Producto.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
+        when(ordenes.insert(any(Orden.class))).thenAnswer(invocacion -> invocacion.getArgument(0));
+        MongoException incierto = new MongoException("Confirmación desconocida.");
+        incierto.addLabel(MongoException.UNKNOWN_TRANSACTION_COMMIT_RESULT_LABEL);
+        doThrow(new TransactionSystemException("No se confirmó.", incierto)).when(gestor).commit(transaccion);
+        when(mongo.findOne(any(Query.class), eq(Orden.class))).thenReturn(ordenExistente());
+
+        var respuesta = servicio().crear(CLAVE_COMPRA, solicitud(linea(ACEITE, 1)));
+
+        assertEquals(new BigDecimal("28000"), respuesta.total());
+        assertEquals(CLAVE_COMPRA.toHexString(), respuesta.id());
+        verify(gestor).getTransaction(any());
+        verify(ordenes).insert(any(Orden.class));
+    }
+
+    @Test
+    void siLaConexionSigueCaidaDevuelve503ConLaClaveOriginal() {
+        iniciarTransaccion();
+        var sinConexion = new DataAccessResourceFailureException("Fallo de prueba.");
+        when(ordenes.findById(CLAVE_COMPRA)).thenThrow(sinConexion);
+        when(mongo.findOne(any(Query.class), eq(Orden.class))).thenThrow(sinConexion);
+
+        var error = verificarEstado(HttpStatus.SERVICE_UNAVAILABLE, solicitud(linea(ACEITE, 1)));
+
+        assertTrue(error.getMessage().contains(CLAVE_COMPRA.toHexString()));
+        verifyNoInteractions(productos);
+        verify(ordenes, never()).insert(any(Orden.class));
+    }
+
+    private static Orden ordenExistente() {
+        var detalle = new Orden.Detalle(ACEITE, "ACE-TEST", "Aceite histórico", 1,
+                new BigDecimal("35000"), new BigDecimal("20"), new BigDecimal("28000"), new BigDecimal("28000"));
+        return new Orden(CLAVE_COMPRA, Instant.parse("2026-01-01T00:00:00Z"), Orden.Estado.PROCESANDO,
+                List.of(detalle), detalle.subtotal());
     }
 
     private OrdenService servicio() {
@@ -251,7 +363,7 @@ class OrdenServiceTests {
     }
 
     private CatalogoException verificarEstado(HttpStatus estado, OrdenRequestDTO datos) {
-        CatalogoException excepcion = assertThrows(CatalogoException.class, () -> servicio().crear(datos));
+        CatalogoException excepcion = assertThrows(CatalogoException.class, () -> servicio().crear(CLAVE_COMPRA, datos));
         assertEquals(estado, excepcion.estado());
         return excepcion;
     }

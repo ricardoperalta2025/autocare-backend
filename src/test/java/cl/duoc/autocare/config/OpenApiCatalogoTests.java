@@ -77,6 +77,11 @@ class OpenApiCatalogoTests {
             assertEquals(Set.of("get", "post"), Set.copyOf(coleccion.propertyNames()));
             assertEquals(Set.of("get"), Set.copyOf(detalle.propertyNames()));
             assertEquals("Órdenes", coleccion.at("/post/tags/0").asString());
+            JsonNode clave = coleccion.at("/post/parameters/0");
+            assertEquals("Idempotency-Key", clave.path("name").asString());
+            assertEquals("header", clave.path("in").asString());
+            assertTrue(clave.path("required").asBoolean());
+            assertEquals("^[0-9a-fA-F]{24}$", clave.at("/schema/pattern").asString());
             assertEquals(Set.of("201", "400", "404", "409", "503"),
                     Set.copyOf(coleccion.at("/post/responses").propertyNames()));
             assertEquals("#/components/schemas/OrdenRequestDTO",

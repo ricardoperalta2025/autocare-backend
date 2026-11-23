@@ -17,6 +17,8 @@ import cl.duoc.autocare.model.Producto;
 import cl.duoc.autocare.repository.OrdenRepository;
 import cl.duoc.autocare.repository.ProductoRepository;
 import com.mongodb.MongoException;
+import com.mongodb.ReadConcern;
+import com.mongodb.ReadPreference;
 import org.bson.types.ObjectId;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Profile;
@@ -51,27 +53,60 @@ public class OrdenService {
         this.transacciones = new TransactionTemplate(gestor);
     }
 
-    public OrdenResponseDTO crear(OrdenRequestDTO solicitud) {
+    public OrdenResponseDTO crear(ObjectId idOrden, OrdenRequestDTO solicitud) {
         Map<ObjectId, Integer> cantidades = validarProductosSolicitados(solicitud);
-        ObjectId idOrden = new ObjectId();
         try {
-            Orden orden = transacciones.execute(estado -> registrarCompra(idOrden, cantidades));
+            Orden orden = transacciones.execute(estado -> ordenes.findById(idOrden)
+                    .map(existente -> exigirMismaCompra(existente, cantidades))
+                    .orElseGet(() -> registrarCompra(idOrden, cantidades)));
             return aRespuesta(Objects.requireNonNull(orden));
         } catch (DataAccessException | TransactionException excepcion) {
+            // La transacción terminó. Se consulta el resultado durable antes de responder.
+            Orden confirmada;
+            try {
+                confirmada = buscarOrdenConfirmada(idOrden);
+            } catch (DataAccessException fallaDeConsulta) {
+                throw compraSinConfirmacion(idOrden);
+            }
+            if (confirmada != null) {
+                return aRespuesta(exigirMismaCompra(confirmada, cantidades));
+            }
             if (esConflictoDeEscritura(excepcion)) {
                 throw new CatalogoException(HttpStatus.CONFLICT,
-                        "Hubo un conflicto de escritura en el inventario. Vuelve a consultar el stock.");
+                        "Hubo un conflicto de escritura en el inventario. Si reintentas la misma compra, conserva la clave.");
             }
-            throw new CatalogoException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "No se pudo confirmar el resultado de la orden " + idOrden.toHexString()
-                            + ". Consulta ese identificador y confirma el resultado antes de enviar otro POST.");
+            throw compraSinConfirmacion(idOrden);
         }
     }
 
     public OrdenResponseDTO buscar(ObjectId id) {
-        return ordenes.findById(id)
-                .map(this::aRespuesta)
-                .orElseThrow(() -> new CatalogoException(HttpStatus.NOT_FOUND, "Orden no encontrada."));
+        Orden orden = buscarOrdenConfirmada(id);
+        if (orden == null) {
+            throw new CatalogoException(HttpStatus.NOT_FOUND, "Orden no encontrada.");
+        }
+        return aRespuesta(orden);
+    }
+
+    private Orden buscarOrdenConfirmada(ObjectId id) {
+        Query filtro = Query.query(Criteria.where("_id").is(id))
+                .withReadPreference(ReadPreference.primary())
+                .withReadConcern(ReadConcern.MAJORITY);
+        return mongo.findOne(filtro, Orden.class);
+    }
+
+    private Orden exigirMismaCompra(Orden orden, Map<ObjectId, Integer> cantidades) {
+        if (orden.productos().size() != cantidades.size() || orden.productos().stream()
+                .anyMatch(linea -> !Objects.equals(cantidades.get(linea.productoId()), linea.cantidad()))) {
+            throw new CatalogoException(HttpStatus.CONFLICT,
+                    "La clave Idempotency-Key ya pertenece a una compra con otros productos o cantidades.");
+        }
+        return orden;
+    }
+
+    private CatalogoException compraSinConfirmacion(ObjectId id) {
+        return new CatalogoException(HttpStatus.SERVICE_UNAVAILABLE,
+                "No se pudo confirmar el resultado de la orden " + id.toHexString()
+                        + ". Consulta ese identificador. Si reintentas, usa la misma clave y los mismos productos y cantidades.");
     }
 
     public List<OrdenResponseDTO> listar() {

@@ -70,31 +70,19 @@ class OrdenTransaccionesMongoTests {
     void confirmaUnaSolaCompraCuandoDosSolicitudesQuierenLaUltimaUnidad() throws Exception {
         Producto ultimo = guardarProducto(1);
         long ordenesAntes = ordenes.count();
-        var listos = new CountDownLatch(2);
-        var inicio = new CountDownLatch(1);
+
         Callable<HttpStatus> comprar = () -> {
-            listos.countDown();
-            if (!inicio.await(5, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("No se iniciaron ambas solicitudes.");
-            }
             try {
-                compras.crear(new OrdenRequestDTO(List.of(linea(ultimo))));
+                compras.crear(new ObjectId(), new OrdenRequestDTO(List.of(linea(ultimo))));
                 return HttpStatus.CREATED;
             } catch (CatalogoException error) {
                 return error.estado();
             }
         };
 
-        try (var ejecutor = Executors.newFixedThreadPool(2)) {
-            var primera = ejecutor.submit(comprar);
-            var segunda = ejecutor.submit(comprar);
-            assertTrue(listos.await(5, TimeUnit.SECONDS));
-            inicio.countDown();
-            var estados = List.of(primera.get(10, TimeUnit.SECONDS), segunda.get(10, TimeUnit.SECONDS));
-
-            assertEquals(1, estados.stream().filter(HttpStatus.CREATED::equals).count());
-            assertEquals(1, estados.stream().filter(HttpStatus.CONFLICT::equals).count());
-        }
+        var estados = ejecutarEnParalelo(comprar);
+        assertEquals(1, estados.stream().filter(HttpStatus.CREATED::equals).count());
+        assertEquals(1, estados.stream().filter(HttpStatus.CONFLICT::equals).count());
         assertEquals(0, stock(ultimo));
         assertEquals(ordenesAntes + 1, ordenes.count());
         assertEquals(new BigDecimal("28000"), compras.listar().getFirst().total());
@@ -109,7 +97,7 @@ class OrdenTransaccionesMongoTests {
         fijarValidadorDeOrdenes(new Document("total", new Document("$exists", false)));
         try {
             var solicitud = new OrdenRequestDTO(List.of(linea(primero), linea(segundo)));
-            CatalogoException error = assertThrows(CatalogoException.class, () -> compras.crear(solicitud));
+            CatalogoException error = assertThrows(CatalogoException.class, () -> compras.crear(new ObjectId(), solicitud));
             assertEquals(HttpStatus.SERVICE_UNAVAILABLE, error.estado());
 
             assertEquals(2, stock(primero));
@@ -117,6 +105,52 @@ class OrdenTransaccionesMongoTests {
             assertEquals(ordenesAntes, ordenes.count());
         } finally {
             fijarValidadorDeOrdenes(new Document());
+        }
+    }
+
+    @Test
+    void dosSolicitudesConLaMismaClaveDescuentanStockUnaSolaVez() throws Exception {
+        Producto producto = guardarProducto(5);
+        ObjectId clave = new ObjectId();
+        var solicitud = new OrdenRequestDTO(List.of(new ProductoSolicitado(producto.id().toHexString(), 2)));
+        long ordenesAntes = ordenes.count();
+
+        Callable<HttpStatus> comprar = () -> {
+            try {
+                compras.crear(clave, solicitud);
+                return HttpStatus.CREATED;
+            } catch (CatalogoException error) {
+                return error.estado();
+            }
+        };
+
+        var estados = ejecutarEnParalelo(comprar);
+        assertTrue(estados.contains(HttpStatus.CREATED));
+        assertTrue(estados.stream().allMatch(estado -> estado == HttpStatus.CREATED
+                || estado == HttpStatus.CONFLICT || estado == HttpStatus.SERVICE_UNAVAILABLE));
+
+        assertEquals(clave.toHexString(), compras.crear(clave, solicitud).id());
+        assertEquals(3, stock(producto));
+        assertEquals(ordenesAntes + 1, ordenes.count());
+    }
+
+    private static List<HttpStatus> ejecutarEnParalelo(Callable<HttpStatus> comprar) throws Exception {
+        var listos = new CountDownLatch(2);
+        var inicio = new CountDownLatch(1);
+        Callable<HttpStatus> sincronizar = () -> {
+            listos.countDown();
+            if (!inicio.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("No se iniciaron ambas solicitudes.");
+            }
+            return comprar.call();
+        };
+
+        try (var ejecutor = Executors.newFixedThreadPool(2)) {
+            var primera = ejecutor.submit(sincronizar);
+            var segunda = ejecutor.submit(sincronizar);
+            assertTrue(listos.await(5, TimeUnit.SECONDS));
+            inicio.countDown();
+            return List.of(primera.get(10, TimeUnit.SECONDS), segunda.get(10, TimeUnit.SECONDS));
         }
     }
 

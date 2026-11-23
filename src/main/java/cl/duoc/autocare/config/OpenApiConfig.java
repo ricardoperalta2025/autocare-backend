@@ -39,8 +39,8 @@ public class OpenApiConfig {
                 .addResponses("DatosInvalidos", respuestaError("La solicitud contiene datos o identificadores inválidos."))
                 .addResponses("RecursoNoEncontrado", respuestaError("El recurso solicitado no existe."))
                 .addResponses("ConflictoCatalogo", respuestaError("La operación entra en conflicto con los datos del catálogo."))
-                .addResponses("ConflictoOrden", respuestaError("Stock insuficiente o conflicto con otra operación de inventario."))
-                .addResponses("CompraSinConfirmacion", respuestaError("No se pudo confirmar la compra. Consulta el ID de la orden."));
+                .addResponses("ConflictoOrden", respuestaError("Stock insuficiente, conflicto de escritura o clave de intento usada con otros productos o cantidades."))
+                .addResponses("CompraSinConfirmacion", respuestaError("No se pudo confirmar la compra. Consulta el ID de la orden o reintenta con la misma clave y solicitud."));
 
         return new OpenAPI()
                 .info(new Info().title("AutoCarePro API").version("1.0")

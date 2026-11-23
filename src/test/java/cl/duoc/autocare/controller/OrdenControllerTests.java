@@ -22,6 +22,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -46,10 +47,11 @@ class OrdenControllerTests {
 
     @Test
     void devuelve201ConLocationYElDetalleDeLaOrden() throws Exception {
-        when(ordenes.crear(new OrdenRequestDTO(List.of(new OrdenRequestDTO.ProductoSolicitado(ID_PRODUCTO, 2)))))
+        when(ordenes.crear(new ObjectId(ID_ORDEN),
+                new OrdenRequestDTO(List.of(new OrdenRequestDTO.ProductoSolicitado(ID_PRODUCTO, 2)))))
                 .thenReturn(respuesta());
 
-        mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).content(SOLICITUD))
+        mvc.perform(post(RUTA).header("Idempotency-Key", ID_ORDEN).contentType(MediaType.APPLICATION_JSON).content(SOLICITUD))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", RUTA + "/" + ID_ORDEN))
                 .andExpect(jsonPath("$.estado").value("PROCESANDO"))
@@ -90,7 +92,7 @@ class OrdenControllerTests {
             "{\"productos\":[{\"productoId\":\"660000000000000000000001\",\"cantidad\":1.5}]}"
     })
     void rechazaPayloadsInvalidosAntesDeInvocarElServicio(String contenido) throws Exception {
-        mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).content(contenido))
+        mvc.perform(post(RUTA).header("Idempotency-Key", ID_ORDEN).contentType(MediaType.APPLICATION_JSON).content(contenido))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
 
@@ -106,11 +108,31 @@ class OrdenControllerTests {
 
     @Test
     void entregaProblema409ParaStockInsuficiente() throws Exception {
-        when(ordenes.crear(any())).thenThrow(new CatalogoException(HttpStatus.CONFLICT, "Stock insuficiente."));
+        when(ordenes.crear(eq(new ObjectId(ID_ORDEN)), any())).thenThrow(new CatalogoException(HttpStatus.CONFLICT, "Stock insuficiente."));
 
-        mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).content(SOLICITUD))
+        mvc.perform(post(RUTA).header("Idempotency-Key", ID_ORDEN).contentType(MediaType.APPLICATION_JSON).content(SOLICITUD))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value("Stock insuficiente."));
+    }
+
+    @Test
+    void exigeLaCabeceraIdempotencyKey() throws Exception {
+        mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).content(SOLICITUD))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("Idempotency-Key")));
+
+        verifyNoInteractions(ordenes);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "no-es-un-object-id", "66000000000000000000000z"})
+    void rechazaClavesInvalidas(String clave) throws Exception {
+        mvc.perform(post(RUTA).header("Idempotency-Key", clave)
+                        .contentType(MediaType.APPLICATION_JSON).content(SOLICITUD))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+
+        verifyNoInteractions(ordenes);
     }
 
     private OrdenResponseDTO respuesta() {
