@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-@Profile("catalogo-local")
+@Profile({"catalogo-local", "railway"})
 @RestController
 @RequestMapping(CategoriaController.RUTA)
 @Tag(name = "Categorías", description = "Consulta y gestión de categorías del catálogo.")

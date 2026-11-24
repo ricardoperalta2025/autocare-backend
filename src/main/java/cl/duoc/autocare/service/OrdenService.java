@@ -35,7 +35,7 @@ import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
-@Profile("catalogo-local")
+@Profile({"catalogo-local", "railway"})
 public class OrdenService {
 
     private static final int CODIGO_CONFLICTO_DE_ESCRITURA = 112;

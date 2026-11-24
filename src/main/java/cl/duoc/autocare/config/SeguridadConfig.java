@@ -9,9 +9,11 @@ import cl.duoc.autocare.service.JwtService;
 import jakarta.servlet.DispatcherType;
 import org.bson.types.ObjectId;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -25,16 +27,17 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(ConfiguracionDemostracion.class)
 public class SeguridadConfig {
 
     @Bean
-    @Profile("catalogo-local")
+    @Profile({"catalogo-local", "railway"})
     PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
     @Bean
-    @Profile("catalogo-local")
+    @Profile({"catalogo-local", "railway"})
     JwtDecoder jwtDecoder(JwtService jwt) {
         return jwt.crearDecodificador();
     }
@@ -50,29 +53,44 @@ public class SeguridadConfig {
         private static final String DETALLE_ORDEN = ORDENES + "/{id}";
 
         @Bean
-        @Profile("catalogo-local")
-        SecurityFilterChain apiLocal(HttpSecurity http, JwtDecoder decodificador, UsuarioRepository usuarios) throws Exception {
+        @Profile({"catalogo-local", "railway"})
+        SecurityFilterChain apiCatalogo(HttpSecurity http, JwtDecoder decodificador, UsuarioRepository usuarios,
+                                       Environment entorno, ConfiguracionDemostracion demostracion) throws Exception {
             configurarSinSesion(http);
-            http.authorizeHttpRequests(reglas -> reglas
-                    .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/v1/salud/mongodb").permitAll()
-                    .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").permitAll()
-                    .requestMatchers(HttpMethod.POST, "/api/v1/auth/registro", "/api/v1/auth/login").permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
-                    .requestMatchers(HttpMethod.GET, CATALOGO).permitAll()
-                    .requestMatchers(HttpMethod.HEAD, CATALOGO).permitAll()
-                    .requestMatchers(CATALOGO).hasRole("ADMIN")
-                    .requestMatchers(HttpMethod.GET, ORDENES, DETALLE_ORDEN).hasAnyRole("ADMIN", "VENDEDOR", "CLIENTE")
-                    .requestMatchers(HttpMethod.HEAD, ORDENES, DETALLE_ORDEN).hasAnyRole("ADMIN", "VENDEDOR", "CLIENTE")
-                    .requestMatchers(HttpMethod.POST, ORDENES).hasAnyRole("ADMIN", "CLIENTE")
-                    .anyRequest().denyAll());
+            boolean railway = entorno.matchesProfiles("railway");
+            http.authorizeHttpRequests(reglas -> {
+                reglas.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/salud/mongodb").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
+                        .requestMatchers(HttpMethod.GET, CATALOGO).permitAll()
+                        .requestMatchers(HttpMethod.HEAD, CATALOGO).permitAll();
+                if (railway) {
+                    reglas.requestMatchers(HttpMethod.GET, "/api/v1/configuracion").permitAll();
+                    if (!demostracion.registro()) {
+                        reglas.requestMatchers(HttpMethod.POST, "/api/v1/auth/registro").denyAll();
+                    }
+                    if (!demostracion.escrituras()) {
+                        reglas.requestMatchers(CATALOGO).denyAll()
+                                .requestMatchers(HttpMethod.POST, ORDENES).denyAll();
+                    }
+                } else {
+                    reglas.requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").permitAll();
+                }
+                reglas.requestMatchers(HttpMethod.POST, "/api/v1/auth/registro").permitAll()
+                        .requestMatchers(CATALOGO).hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, ORDENES, DETALLE_ORDEN).hasAnyRole("ADMIN", "VENDEDOR", "CLIENTE")
+                        .requestMatchers(HttpMethod.HEAD, ORDENES, DETALLE_ORDEN).hasAnyRole("ADMIN", "VENDEDOR", "CLIENTE")
+                        .requestMatchers(HttpMethod.POST, ORDENES).hasAnyRole("ADMIN", "CLIENTE")
+                        .anyRequest().denyAll();
+            });
             http.oauth2ResourceServer(recurso -> recurso.jwt(jwt -> jwt.decoder(decodificador)
                     .jwtAuthenticationConverter(token -> autenticarUsuario(token.getSubject(), usuarios))));
             return http.build();
         }
 
         @Bean
-        @Profile("!catalogo-local")
+        @Profile("!catalogo-local & !railway")
         SecurityFilterChain sinApiLocal(HttpSecurity http) throws Exception {
             configurarSinSesion(http);
             http.authorizeHttpRequests(reglas -> reglas

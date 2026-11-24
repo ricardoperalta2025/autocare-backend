@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 @Service
-@Profile("catalogo-local")
+@Profile({"catalogo-local", "railway"})
 public class AutenticacionService {
 
     private final UsuarioRepository usuarios;

@@ -218,3 +218,21 @@ Remove-Item Env:AUTOCARE_ORDENES_MONGO_LOCAL
 ```
 
 Esa prueba usa una base temporal distinta para cada ejecución. Prueba dos compras por la última unidad, dos solicitudes concurrentes con una misma clave y la reversión de stock cuando MongoDB rechaza el registro de la orden. La suite habitual usa mocks para verificar la lógica y el flujo transaccional. Habilita una prueba sobre una base de Atlas aislada únicamente después de autorizar la escritura y preparar allí colecciones y productos ficticios.
+
+## Preparar el backend en Railway
+
+Conecta este repositorio como un servicio privado en el mismo proyecto y entorno Railway que `autocare-react`. Usa Railpack con `RAILPACK_JDK_VERSION=21`. Configura el build `sh ./mvnw -B -DskipTests package` y el arranque `java -jar target/autocare-backend-0.0.1-SNAPSHOT.jar`. Define el healthcheck `/api/v1/salud/mongodb`.
+
+| Variable | Configuración |
+| --- | --- |
+| `SPRING_PROFILES_ACTIVE` | `railway` |
+| `PORT` | `8080`, el mismo que usa el proxy interno del frontend |
+| `MONGODB_URI` | Secreto con usuario de aplicación limitado a la base `autocarepro_demo` en Atlas |
+| `JWT_SECRET_BASE64` | Secreto Base64 exclusivo de este entorno, con al menos 32 bytes aleatorios |
+| `JWT_EXPIRACION` | Opcional. Predeterminado `PT30M` |
+| `AUTOCARE_DEMO_REGISTRO` | Predeterminado `false` |
+| `AUTOCARE_DEMO_ESCRITURAS` | Predeterminado `false`. Controla compras y escrituras del catálogo |
+
+El perfil comprueba el nombre de la base al iniciar. Antes de habilitar registro o escrituras, autoriza y aprovisiona en Atlas la base aislada con `usuarios`, `categorias`, `productos` y `ordenes`. Prepara los índices únicos de correo, nombre y código normalizados, y el índice de categoría. Carga únicamente datos ficticios y administra las cuentas de demostración por el canal acordado. Autoriza en Atlas las IP de salida de Railway.
+
+El catálogo y el login están disponibles con las escrituras cerradas. `GET /api/v1/configuracion` devuelve solo los interruptores de registro y escrituras. Spring Security comprueba el rol aun cuando se habilitan. El perfil local conserva su Swagger, configuración y reglas de acceso.

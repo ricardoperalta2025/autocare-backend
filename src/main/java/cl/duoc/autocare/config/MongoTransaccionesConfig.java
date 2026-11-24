@@ -11,7 +11,7 @@ import org.springframework.data.mongodb.MongoDatabaseFactory;
 import org.springframework.data.mongodb.MongoTransactionManager;
 
 @Configuration(proxyBeanMethods = false)
-@Profile("catalogo-local")
+@Profile({"catalogo-local", "railway"})
 public class MongoTransaccionesConfig {
 
     @Bean

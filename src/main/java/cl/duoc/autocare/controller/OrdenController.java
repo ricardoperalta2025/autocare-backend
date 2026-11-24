@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-@Profile("catalogo-local")
+@Profile({"catalogo-local", "railway"})
 @RestController
 @RequestMapping(OrdenController.RUTA)
 @Tag(name = "Órdenes", description = "Compras simuladas y consulta de órdenes.")

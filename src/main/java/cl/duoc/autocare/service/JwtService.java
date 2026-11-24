@@ -27,7 +27,7 @@ import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.stereotype.Service;
 
 @Service
-@Profile("catalogo-local")
+@Profile({"catalogo-local", "railway"})
 public class JwtService {
 
     private static final String EMISOR = "autocarepro";
