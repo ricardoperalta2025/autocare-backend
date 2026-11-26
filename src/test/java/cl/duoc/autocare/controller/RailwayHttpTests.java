@@ -119,6 +119,15 @@ class RailwayHttpTests {
             mvc.perform(post("/api/v1/ordenes").header("Authorization", admin)
                     .header("Idempotency-Key", ORDEN).contentType("application/json").content(COMPRA))
                     .andExpect(status().isForbidden());
+            mvc.perform(put("/api/v1/ordenes/" + ORDEN + "/envio").header("Authorization", admin))
+                    .andExpect(status().isForbidden());
+            mvc.perform(post("/api/v1/usuarios").header("Authorization", admin)).andExpect(status().isForbidden());
+            mvc.perform(put("/api/v1/usuarios/me/perfil").header("Authorization", admin)).andExpect(status().isForbidden());
+            mvc.perform(put("/api/v1/incidencias/" + ID + "/resolucion").header("Authorization", admin))
+                    .andExpect(status().isForbidden());
+            String cliente = autorizar(RolUsuario.CLIENTE);
+            mvc.perform(post("/api/v1/incidencias").header("Authorization", cliente)).andExpect(status().isForbidden());
+            mvc.perform(post("/api/v1/contacto").header("Authorization", cliente)).andExpect(status().isForbidden());
             verifyNoInteractions(autenticacion, productos, ordenes);
         }
     }

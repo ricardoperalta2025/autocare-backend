@@ -56,10 +56,11 @@ public class OrdenService {
     public OrdenResponseDTO crear(ObjectId idOrden, OrdenRequestDTO solicitud, ObjectId compradorId) {
         Objects.requireNonNull(compradorId);
         Map<ObjectId, Integer> cantidades = validarProductosSolicitados(solicitud);
+        Orden.Entrega entrega = solicitud.entrega() == null ? null : solicitud.entrega().aDocumento();
         try {
             Orden orden = transacciones.execute(estado -> ordenes.findById(idOrden)
-                    .map(existente -> exigirMismaCompra(existente, cantidades, compradorId))
-                    .orElseGet(() -> registrarCompra(idOrden, cantidades, compradorId)));
+                    .map(existente -> exigirMismaCompra(existente, cantidades, compradorId, entrega))
+                    .orElseGet(() -> registrarCompra(idOrden, cantidades, compradorId, entrega)));
             return aRespuesta(Objects.requireNonNull(orden));
         } catch (DataAccessException | TransactionException excepcion) {
             // La transacción terminó. Se consulta el resultado durable antes de responder.
@@ -70,7 +71,7 @@ public class OrdenService {
                 throw compraSinConfirmacion(idOrden);
             }
             if (confirmada != null) {
-                return aRespuesta(exigirMismaCompra(confirmada, cantidades, compradorId));
+                return aRespuesta(exigirMismaCompra(confirmada, cantidades, compradorId, entrega));
             }
             if (esConflictoDeEscritura(excepcion)) {
                 throw new CatalogoException(HttpStatus.CONFLICT,
@@ -99,7 +100,8 @@ public class OrdenService {
         return mongo.findOne(filtro, Orden.class);
     }
 
-    private Orden exigirMismaCompra(Orden orden, Map<ObjectId, Integer> cantidades, ObjectId compradorId) {
+    private Orden exigirMismaCompra(Orden orden, Map<ObjectId, Integer> cantidades, ObjectId compradorId,
+                                   Orden.Entrega entrega) {
         if (!compradorId.equals(orden.compradorId())) {
             throw new CatalogoException(HttpStatus.FORBIDDEN, "La clave no está disponible para este comprador.");
         }
@@ -108,7 +110,19 @@ public class OrdenService {
             throw new CatalogoException(HttpStatus.CONFLICT,
                     "La clave Idempotency-Key ya pertenece a una compra con otros productos o cantidades.");
         }
+        if (!Objects.equals(orden.entrega(), entrega)) {
+            throw new CatalogoException(HttpStatus.CONFLICT, "La clave Idempotency-Key ya pertenece a una compra con otros datos de entrega.");
+        }
         return orden;
+    }
+
+    public void marcarEnviada(ObjectId id) {
+        Query ordenProcesando = Query.query(Criteria.where("_id").is(id).and("estado").is(Orden.Estado.PROCESANDO));
+        if (mongo.updateFirst(ordenProcesando, new Update().set("estado", Orden.Estado.ENVIADO), Orden.class)
+                .getMatchedCount() == 1) return;
+        if (buscar(id, null).estado() != Orden.Estado.ENVIADO) {
+            throw new CatalogoException(HttpStatus.CONFLICT, "La orden no está procesando.");
+        }
     }
 
     private CatalogoException compraSinConfirmacion(ObjectId id) {
@@ -121,7 +135,7 @@ public class OrdenService {
         Sort orden = Sort.by(Orden::fechaCreacion).descending().and(Sort.by(Orden::id).descending());
         List<Orden> resultados = compradorId == null ? ordenes.findAll(orden)
                 : ordenes.findAllByCompradorId(compradorId, orden);
-        return resultados.stream().map(this::aRespuesta).toList();
+        return resultados.stream().map(registro -> aRespuesta(registro).sinEntrega()).toList();
     }
 
     private Map<ObjectId, Integer> validarProductosSolicitados(OrdenRequestDTO solicitud) {
@@ -143,7 +157,8 @@ public class OrdenService {
         return cantidades;
     }
 
-    private Orden registrarCompra(ObjectId idOrden, Map<ObjectId, Integer> cantidades, ObjectId compradorId) {
+    private Orden registrarCompra(ObjectId idOrden, Map<ObjectId, Integer> cantidades, ObjectId compradorId,
+                                  Orden.Entrega entrega) {
         List<Orden.Detalle> detalles = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
         for (var linea : cantidades.entrySet()) {
@@ -157,7 +172,7 @@ public class OrdenService {
         }
 
         return ordenes.insert(new Orden(idOrden, Instant.now().truncatedTo(ChronoUnit.MILLIS),
-                Orden.Estado.PROCESANDO, detalles, total, compradorId));
+                Orden.Estado.PROCESANDO, detalles, total, compradorId, entrega));
     }
 
     private Orden.Detalle prepararDetalle(ObjectId id, int cantidad) {
@@ -206,6 +221,6 @@ public class OrdenService {
                         linea.precioUnitario(), linea.subtotal()))
                 .toList();
         return new OrdenResponseDTO(orden.id().toHexString(), orden.fechaCreacion(),
-                orden.estado(), detalles, orden.total());
+                orden.estado(), detalles, orden.total(), orden.entrega());
     }
 }

@@ -12,8 +12,17 @@ public record Usuario(
         @Indexed(name = "correo_normalizado_unico", unique = true) String correoNormalizado,
         String contrasenaHash,
         RolUsuario rol,
-        boolean activo
+        boolean activo,
+        Perfil perfil
 ) {
+    public Usuario(ObjectId id, String nombre, String correoNormalizado, String contrasenaHash,
+                   RolUsuario rol, boolean activo) {
+        this(id, nombre, correoNormalizado, contrasenaHash, rol, activo, null);
+    }
+
+    public record Perfil(String apellido, String telefono, String comuna, String direccion) {
+    }
+
     @Override
     public String toString() {
         return "Usuario[id=" + id + ", rol=" + rol + ", activo=" + activo + "]";

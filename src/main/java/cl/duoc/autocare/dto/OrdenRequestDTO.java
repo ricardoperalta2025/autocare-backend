@@ -11,8 +11,13 @@ import jakarta.validation.constraints.Positive;
 
 public record OrdenRequestDTO(
         @NotEmpty(message = "La orden debe incluir productos.")
-        List<@NotNull(message = "El detalle del producto es obligatorio.") @Valid ProductoSolicitado> productos
+        List<@NotNull(message = "El detalle del producto es obligatorio.") @Valid ProductoSolicitado> productos,
+        @Valid EntregaOrdenRequestDTO entrega
 ) {
+
+    public OrdenRequestDTO(List<ProductoSolicitado> productos) {
+        this(productos, null);
+    }
 
     public record ProductoSolicitado(
             @NotBlank(message = "El identificador del producto es obligatorio.")

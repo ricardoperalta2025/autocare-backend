@@ -9,6 +9,18 @@ import java.util.concurrent.TimeUnit;
 
 import cl.duoc.autocare.JwtDePrueba;
 import cl.duoc.autocare.dto.OrdenRequestDTO;
+import cl.duoc.autocare.dto.ClienteAdminDTO;
+import cl.duoc.autocare.dto.ContactoRequestDTO;
+import cl.duoc.autocare.dto.EntregaOrdenRequestDTO;
+import cl.duoc.autocare.dto.IncidenciaDTO;
+import cl.duoc.autocare.model.Incidencia;
+import cl.duoc.autocare.model.MensajeContacto;
+import cl.duoc.autocare.model.Usuario;
+import cl.duoc.autocare.repository.UsuarioRepository;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.mongodb.core.index.Index;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import cl.duoc.autocare.dto.OrdenRequestDTO.ProductoSolicitado;
 import cl.duoc.autocare.exception.CatalogoException;
 import cl.duoc.autocare.model.Orden;
@@ -57,6 +69,10 @@ class OrdenTransaccionesMongoTests {
     @Autowired private OrdenService compras;
     @Autowired private OrdenRepository ordenes;
     @Autowired private ProductoRepository productos;
+    @Autowired private UsuarioRepository usuarios;
+    @Autowired private UsuarioAdminService clientes;
+    @Autowired private IncidenciaService incidencias;
+    @Autowired private ContactoService contacto;
 
     @BeforeAll
     void crearColecciones() {
@@ -135,6 +151,66 @@ class OrdenTransaccionesMongoTests {
         assertEquals(clave.toHexString(), compras.crear(clave, solicitud, COMPRADOR).id());
         assertEquals(3, stock(producto));
         assertEquals(ordenesAntes + 1, ordenes.count());
+    }
+
+
+    @Test
+    void persisteEntregaConLaOrdenYRechazaOtroDespachoParaLaMismaClave() {
+        Producto producto = guardarProducto(3);
+        ObjectId clave = new ObjectId();
+        var entrega = new EntregaOrdenRequestDTO("Cliente", "cliente@example.test", "900000000", "Santiago",
+                "Calle de prueba 10", "Envío estándar");
+        var solicitud = new OrdenRequestDTO(List.of(linea(producto)), entrega);
+        compras.crear(clave, solicitud, COMPRADOR);
+        assertEquals(entrega.aDocumento(), ordenes.findById(clave).orElseThrow().entrega());
+        assertEquals(entrega.aDocumento(), compras.buscar(clave, COMPRADOR).entrega());
+        assertEquals(clave.toHexString(), compras.crear(clave, solicitud, COMPRADOR).id());
+        var otraEntrega = new EntregaOrdenRequestDTO("Cliente", "cliente@example.test", "900000000", "Santiago",
+                "Otra dirección", "Envío estándar");
+        assertEquals(HttpStatus.CONFLICT, assertThrows(CatalogoException.class,
+                () -> compras.crear(clave, new OrdenRequestDTO(List.of(linea(producto)), otraEntrega), COMPRADOR)).estado());
+        compras.marcarEnviada(clave);
+        compras.marcarEnviada(clave);
+        assertEquals(Orden.Estado.ENVIADO, compras.buscar(clave, COMPRADOR).estado());
+        assertEquals(2, stock(producto));
+    }
+
+    @Test
+    void incidenciaSeCreaEnMongoSeFiltraPorClienteYSeResuelve() {
+        ObjectId duenio = new ObjectId();
+        ObjectId ordenId = new ObjectId();
+        compras.crear(ordenId, new OrdenRequestDTO(List.of(linea(guardarProducto(1)))), duenio);
+        var datos = new IncidenciaDTO.Solicitud(ordenId.toHexString(), "Seguimiento", "Solicito información.");
+        ObjectId otraCuenta = new ObjectId();
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(CatalogoException.class,
+                () -> incidencias.crear(datos, otraCuenta)).estado());
+        var creada = incidencias.crear(datos, duenio);
+        assertEquals(Incidencia.Estado.PENDIENTE, creada.estado());
+        assertTrue(incidencias.listar(otraCuenta).isEmpty());
+        assertEquals(creada.id(), incidencias.listar(duenio).getFirst().id());
+        incidencias.resolver(new ObjectId(creada.id()));
+        assertEquals(Incidencia.Estado.RESUELTA, incidencias.listar(duenio).getFirst().estado());
+    }
+
+    @Test
+    void editaClientesSinCambiarSuHashYGuardaElMensajeDeContacto() {
+        mongo.indexOps(Usuario.class).createIndex(new Index().on("correoNormalizado", Sort.Direction.ASC).unique());
+        String correo = "aislado-" + new ObjectId() + "@example.test";
+        var datos = new ClienteAdminDTO.Datos("Ana", "Díaz", correo, "900000000", "Santiago", "Calle de prueba");
+        var alta = clientes.crear(new ClienteAdminDTO.Alta(datos, "ClaveDePrueba123"));
+        ObjectId id = new ObjectId(alta.id());
+        String hash = usuarios.findById(id).orElseThrow().contrasenaHash();
+        assertTrue(clientes.listar().stream().anyMatch(cliente -> cliente.id().equals(alta.id())));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(CatalogoException.class,
+                () -> clientes.crear(new ClienteAdminDTO.Alta(datos, "OtraClaveDePrueba"))).estado());
+        var edicion = new ClienteAdminDTO.Datos("Ana", "Díaz", correo, "", "Providencia", "Otra calle");
+        assertEquals("Providencia", clientes.editar(id, edicion).comuna());
+        assertEquals("Otra calle", clientes.perfil(id).direccion());
+        assertEquals(hash, usuarios.findById(id).orElseThrow().contrasenaHash());
+
+        contacto.enviar(new ContactoRequestDTO("Ana", "", "Mensaje aislado"), id);
+        var mensaje = mongo.findOne(Query.query(Criteria.where("usuarioId").is(id)), MensajeContacto.class);
+        assertEquals("Mensaje aislado", mensaje.comentario());
     }
 
     private static List<HttpStatus> ejecutarEnParalelo(Callable<HttpStatus> comprar) throws Exception {

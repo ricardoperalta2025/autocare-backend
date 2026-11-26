@@ -7,6 +7,9 @@ import cl.duoc.autocare.controller.AuthController;
 import cl.duoc.autocare.controller.CategoriaController;
 import cl.duoc.autocare.controller.OrdenController;
 import cl.duoc.autocare.controller.ProductoController;
+import cl.duoc.autocare.controller.IncidenciaController;
+import cl.duoc.autocare.controller.ContactoController;
+import cl.duoc.autocare.controller.UsuarioAdminController;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -15,7 +18,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
-@RestControllerAdvice(assignableTypes = {ProductoController.class, CategoriaController.class, OrdenController.class, AuthController.class})
+@RestControllerAdvice(assignableTypes = {ProductoController.class, CategoriaController.class, OrdenController.class, AuthController.class,
+        IncidenciaController.class, UsuarioAdminController.class, ContactoController.class})
 public class CatalogoExceptionHandler {
 
     @ExceptionHandler(CatalogoException.class)

@@ -158,6 +158,19 @@ class OrdenControllerTests {
         verifyNoInteractions(ordenes);
     }
 
+    @Test
+    void validaElDespachoAntesDeProcesarLaCompra() throws Exception {
+        String incompleta = """
+                {"productos":[{"productoId":"660000000000000000000001","cantidad":2}],"entrega":{"tipo":"Express"}}
+                """;
+        mvc.perform(post(RUTA).with(comoCliente()).header("Idempotency-Key", ID_ORDEN)
+                        .contentType(MediaType.APPLICATION_JSON).content(incompleta))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.campos['entrega.nombre']").exists())
+                .andExpect(jsonPath("$.campos['entrega.tipo']").exists());
+        verifyNoInteractions(ordenes);
+    }
+
     private RequestPostProcessor comoCliente() {
         var usuario = new UsuarioResponseDTO(COMPRADOR.toHexString(), "Cliente", "cliente@example.test", RolUsuario.CLIENTE);
         return authentication(UsernamePasswordAuthenticationToken.authenticated(usuario, null,

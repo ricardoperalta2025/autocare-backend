@@ -219,6 +219,24 @@ Remove-Item Env:AUTOCARE_ORDENES_MONGO_LOCAL
 
 Esa prueba usa una base temporal distinta para cada ejecución. Prueba dos compras por la última unidad, dos solicitudes concurrentes con una misma clave y la reversión de stock cuando MongoDB rechaza el registro de la orden. La suite habitual usa mocks para verificar la lógica y el flujo transaccional. Habilita una prueba sobre una base de Atlas aislada únicamente después de autorizar la escritura y preparar allí colecciones y productos ficticios.
 
+## Gestión EV3 conectada
+
+| Método y ruta bajo `/api/v1` | Roles | Resultado |
+| --- | --- | --- |
+| POST `/ordenes` | CLIENTE, ADMIN | `201`. Guarda `entrega` si se envía. El checkout conectado la incluye y se validan nombre, correo, teléfono, comuna, dirección y tipo |
+| GET `/ordenes/{id}` | CLIENTE dueño, VENDEDOR, ADMIN | `200`. La entrega queda reservada al dueño y ADMIN. Las órdenes antiguas mantienen su formato cuando carecen de entrega |
+| PUT `/ordenes/{id}/envio` | ADMIN | `204`. Actualiza solo el estado de Procesando a Enviado. Repetir el cambio conserva el estado |
+| GET `/usuarios`, `/usuarios/{id}` y `/usuarios/{id}/ordenes` | ADMIN | `200`. Clientes y sus compras. Los DTO resguardan credenciales |
+| POST `/usuarios` y PUT `/usuarios/{id}` | ADMIN | `201` y `200`. Alta como CLIENTE y edición de datos. La edición preserva clave, rol y estado de la cuenta |
+| GET y PUT `/usuarios/me/perfil` | CLIENTE, ADMIN | `200`. Identidad tomada del JWT. Consulta y edición del perfil propio |
+| GET y POST `/incidencias` | GET con CLIENTE y ADMIN. POST con CLIENTE | `200` y `201`. ADMIN consulta todas. CLIENTE ve las propias y reporta una orden propia |
+| PUT `/incidencias/{id}/resolucion` | ADMIN | `204`. Marca el caso como resuelto |
+| POST `/contacto` | CLIENTE, ADMIN | `204`. Guarda el mensaje de una sesión autenticada |
+
+La clave idempotente compara comprador, cantidades y datos de entrega. Los cuerpos antiguos sin `entrega` pueden recuperarse con su misma clave. Las listas de órdenes y la confirmación de compra omiten el despacho. El comprobante muestra la compra simulada y sus importes históricos.
+
+MongoDB crea `incidencias` y `mensajesContacto` al guardar el primer registro, con el índice por defecto de `_id`. La compra incorpora `entrega` en `ordenes` y los datos opcionales de perfil van dentro de `usuarios`. El alta y la edición de cuentas reutilizan el índice único existente de `correoNormalizado`. Los avisos de stock y reportes reutilizan `productos`, `ordenes`, `usuarios` e `incidencias`. Para ensayar escrituras, usa los perfiles y una base aislada en loopback descritos arriba.
+
 ## Preparar el backend en Railway
 
 Conecta este repositorio como un servicio privado en el mismo proyecto y entorno Railway que `autocare-react`. Usa Railpack con `RAILPACK_JDK_VERSION=21`. Configura el build `sh ./mvnw -B -DskipTests package` y el arranque `java -jar target/autocare-backend-0.0.1-SNAPSHOT.jar`. Define el healthcheck `/api/v1/salud/mongodb`.

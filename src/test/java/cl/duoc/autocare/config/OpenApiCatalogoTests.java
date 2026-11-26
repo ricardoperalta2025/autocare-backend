@@ -58,7 +58,10 @@ class OpenApiCatalogoTests {
             assertEquals(Set.of("/api/v1/productos", "/api/v1/productos/{id}",
                     "/api/v1/categorias", "/api/v1/categorias/{id}",
                     "/api/v1/ordenes", "/api/v1/ordenes/{id}", "/api/v1/auth/registro",
-                    "/api/v1/auth/login", "/api/v1/auth/me"),
+                    "/api/v1/auth/login", "/api/v1/auth/me", "/api/v1/ordenes/{id}/envio",
+                    "/api/v1/usuarios", "/api/v1/usuarios/{id}", "/api/v1/usuarios/{id}/ordenes",
+                    "/api/v1/usuarios/me/perfil", "/api/v1/incidencias", "/api/v1/incidencias/{id}/resolucion",
+                    "/api/v1/contacto"),
                     Set.copyOf(documento.path("paths").propertyNames()));
 
             verificarRecurso(documento, "productos", "Producto", "Productos", Set.of("204", "400", "404"));

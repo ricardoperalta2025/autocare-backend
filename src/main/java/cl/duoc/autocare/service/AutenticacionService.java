@@ -40,15 +40,18 @@ public class AutenticacionService {
     }
 
     public UsuarioResponseDTO registrar(RegistroRequestDTO datos) {
-        String correo = normalizarCorreo(datos.correo());
-        if (datos.contrasena().getBytes(StandardCharsets.UTF_8).length > 72) {
+        return UsuarioResponseDTO.desde(crearCliente(datos.nombre(), datos.correo(), datos.contrasena(), null));
+    }
+
+    Usuario crearCliente(String nombre, String correo, String contrasena, Usuario.Perfil perfil) {
+        if (contrasena.getBytes(StandardCharsets.UTF_8).length > 72) {
             throw new CatalogoException(HttpStatus.BAD_REQUEST, "La contraseña admite como máximo 72 bytes UTF-8.");
         }
         verificarIndiceDeCorreo();
         try {
-            Usuario cliente = new Usuario(null, datos.nombre(), correo,
-                    contrasenas.encode(datos.contrasena()), RolUsuario.CLIENTE, true);
-            return UsuarioResponseDTO.desde(usuarios.insert(cliente));
+            Usuario cliente = new Usuario(null, nombre, normalizarCorreo(correo),
+                    contrasenas.encode(contrasena), RolUsuario.CLIENTE, true, perfil);
+            return usuarios.insert(cliente);
         } catch (DuplicateKeyException error) {
             throw new CatalogoException(HttpStatus.CONFLICT, "Ya existe una cuenta con ese correo.");
         }
@@ -66,7 +69,7 @@ public class AutenticacionService {
         return jwt.emitir(usuario);
     }
 
-    private void verificarIndiceDeCorreo() {
+    void verificarIndiceDeCorreo() {
         boolean existe;
         try {
             existe = mongo.indexOps(Usuario.class).getIndexInfo().stream().anyMatch(indice ->
@@ -81,7 +84,7 @@ public class AutenticacionService {
         }
     }
 
-    private String normalizarCorreo(String correo) {
+    static String normalizarCorreo(String correo) {
         return correo.strip().toLowerCase(Locale.ROOT);
     }
 

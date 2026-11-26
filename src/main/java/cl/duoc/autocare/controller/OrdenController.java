@@ -27,6 +27,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -49,7 +50,7 @@ public class OrdenController {
     }
 
     @Operation(summary = "Registrar una compra simulada",
-            description = "Envía un ID por producto y su cantidad. Reutiliza Idempotency-Key al reintentar la misma compra.",
+            description = "Envía los productos y cantidades. El checkout conectado incluye los datos de entrega. Reutiliza Idempotency-Key con el mismo cuerpo.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(
                     mediaType = "application/json", examples = @ExampleObject(name = "orden", value = """
                     {"productos": [{"productoId": "660000000000000000000001", "cantidad": 2}]}
@@ -75,7 +76,7 @@ public class OrdenController {
                     "La cabecera Idempotency-Key debe tener 24 caracteres hexadecimales.");
         }
         OrdenResponseDTO orden = ordenes.crear(new ObjectId(clave), solicitud, new ObjectId(usuario.id()));
-        return ResponseEntity.created(URI.create(RUTA + "/" + orden.id())).body(orden);
+        return ResponseEntity.created(URI.create(RUTA + "/" + orden.id())).body(orden.sinEntrega());
     }
 
     @Operation(summary = "Consultar una orden por ID")
@@ -85,7 +86,8 @@ public class OrdenController {
     @GetMapping("/{id}")
     public OrdenResponseDTO buscar(@Parameter(ref = "#/components/parameters/IdCatalogo") @PathVariable ObjectId id,
                                    @AuthenticationPrincipal UsuarioResponseDTO usuario) {
-        return ordenes.buscar(id, filtrarPorCliente(usuario));
+        OrdenResponseDTO orden = ordenes.buscar(id, filtrarPorCliente(usuario));
+        return usuario.rol() == RolUsuario.VENDEDOR ? orden.sinEntrega() : orden;
     }
 
     @Operation(summary = "Listar órdenes de la más reciente a la más antigua")
@@ -93,6 +95,13 @@ public class OrdenController {
     @GetMapping
     public List<OrdenResponseDTO> listar(@AuthenticationPrincipal UsuarioResponseDTO usuario) {
         return ordenes.listar(filtrarPorCliente(usuario));
+    }
+
+    @Operation(summary = "Marcar una orden como enviada")
+    @PutMapping("/{id}/envio")
+    public ResponseEntity<Void> marcarEnviada(@PathVariable ObjectId id) {
+        ordenes.marcarEnviada(id);
+        return ResponseEntity.noContent().build();
     }
 
     private ObjectId filtrarPorCliente(UsuarioResponseDTO usuario) {

@@ -51,6 +51,13 @@ public class SeguridadConfig {
                 "/api/v1/categorias", "/api/v1/categorias/{id}"};
         private static final String ORDENES = "/api/v1/ordenes";
         private static final String DETALLE_ORDEN = ORDENES + "/{id}";
+        private static final String ENVIO_ORDEN = DETALLE_ORDEN + "/envio";
+        private static final String USUARIOS = "/api/v1/usuarios";
+        private static final String DETALLE_USUARIO = USUARIOS + "/{id}";
+        private static final String PERFIL = USUARIOS + "/me/perfil";
+        private static final String CONTACTO = "/api/v1/contacto";
+        private static final String INCIDENCIAS = "/api/v1/incidencias";
+        private static final String RESOLUCION_INCIDENCIA = INCIDENCIAS + "/{id}/resolucion";
 
         @Bean
         @Profile({"catalogo-local", "railway"})
@@ -72,7 +79,8 @@ public class SeguridadConfig {
                     }
                     if (!demostracion.escrituras()) {
                         reglas.requestMatchers(CATALOGO).denyAll()
-                                .requestMatchers(HttpMethod.POST, ORDENES).denyAll();
+                                .requestMatchers(HttpMethod.POST, ORDENES, USUARIOS, INCIDENCIAS, CONTACTO).denyAll()
+                                .requestMatchers(HttpMethod.PUT, ENVIO_ORDEN, DETALLE_USUARIO, RESOLUCION_INCIDENCIA, PERFIL).denyAll();
                     }
                 } else {
                     reglas.requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").permitAll();
@@ -82,6 +90,14 @@ public class SeguridadConfig {
                         .requestMatchers(HttpMethod.GET, ORDENES, DETALLE_ORDEN).hasAnyRole("ADMIN", "VENDEDOR", "CLIENTE")
                         .requestMatchers(HttpMethod.HEAD, ORDENES, DETALLE_ORDEN).hasAnyRole("ADMIN", "VENDEDOR", "CLIENTE")
                         .requestMatchers(HttpMethod.POST, ORDENES).hasAnyRole("ADMIN", "CLIENTE")
+                        .requestMatchers(HttpMethod.GET, USUARIOS, DETALLE_USUARIO, DETALLE_USUARIO + "/ordenes").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, USUARIOS).hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, ENVIO_ORDEN, DETALLE_USUARIO, RESOLUCION_INCIDENCIA).hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, INCIDENCIAS).hasAnyRole("ADMIN", "CLIENTE")
+                        .requestMatchers(HttpMethod.POST, INCIDENCIAS).hasRole("CLIENTE")
+                        .requestMatchers(HttpMethod.GET, PERFIL).hasAnyRole("CLIENTE", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, PERFIL).hasAnyRole("CLIENTE", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, CONTACTO).hasAnyRole("CLIENTE", "ADMIN")
                         .anyRequest().denyAll();
             });
             http.oauth2ResourceServer(recurso -> recurso.jwt(jwt -> jwt.decoder(decodificador)

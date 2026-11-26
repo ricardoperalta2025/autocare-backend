@@ -17,11 +17,20 @@ public record Orden(
         Estado estado,
         List<Detalle> productos,
         @Field(targetType = FieldType.STRING) BigDecimal total,
-        ObjectId compradorId
+        ObjectId compradorId,
+        Entrega entrega
 ) {
 
+    public Orden(ObjectId id, Instant fechaCreacion, Estado estado, List<Detalle> productos,
+                 BigDecimal total, ObjectId compradorId) {
+        this(id, fechaCreacion, estado, productos, total, compradorId, null);
+    }
+
     public enum Estado {
-        PROCESANDO
+        PROCESANDO, ENVIADO
+    }
+
+    public record Entrega(String nombre, String correo, String telefono, String comuna, String direccion, String tipo) {
     }
 
     public record Detalle(
