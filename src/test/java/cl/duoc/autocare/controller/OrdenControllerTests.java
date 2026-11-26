@@ -76,12 +76,21 @@ class OrdenControllerTests {
     }
 
     @Test
-    void consultaOrdenPorId() throws Exception {
+    void consultaOrdenPorIdConLosDatosHistoricosDelComprobante() throws Exception {
         when(ordenes.buscar(new ObjectId(ID_ORDEN), COMPRADOR)).thenReturn(respuesta());
 
         mvc.perform(get(RUTA + "/" + ID_ORDEN).with(comoCliente()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(ID_ORDEN));
+                .andExpect(jsonPath("$.id").value(ID_ORDEN))
+                .andExpect(jsonPath("$.fechaCreacion").value("2026-01-01T00:00:00Z"))
+                .andExpect(jsonPath("$.estado").value("PROCESANDO"))
+                .andExpect(jsonPath("$.productos[0].nombre").value("Aceite"))
+                .andExpect(jsonPath("$.productos[0].cantidad").value(2))
+                .andExpect(jsonPath("$.productos[0].precioOriginal").value(35000))
+                .andExpect(jsonPath("$.productos[0].descuento").value(20))
+                .andExpect(jsonPath("$.productos[0].precioUnitario").value(28000))
+                .andExpect(jsonPath("$.productos[0].subtotal").value(56000))
+                .andExpect(jsonPath("$.total").value(56000));
     }
 
     @Test

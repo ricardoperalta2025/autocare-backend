@@ -218,9 +218,12 @@ class AutenticacionHttpTests {
                 .andExpect(status().isNoContent());
         mvc.perform(get(ORDENES).header(HttpHeaders.AUTHORIZATION, tokenVigente()))
                 .andExpect(status().isOk());
+        mvc.perform(get(ORDENES + "/" + ORDEN).header(HttpHeaders.AUTHORIZATION, tokenVigente()))
+                .andExpect(status().isOk());
         verify(productos).eliminar(PRODUCTO);
         verify(categorias).eliminar(PRODUCTO);
         verify(ordenes).listar(null);
+        verify(ordenes).buscar(ORDEN, null);
     }
 
     @Test
