@@ -8,8 +8,9 @@ import org.springframework.data.mongodb.core.mapping.Document;
 
 @Document("incidencias")
 public record Incidencia(@Id ObjectId id, ObjectId compradorId, ObjectId ordenId, String asunto,
-                         String descripcion, Instant fecha, Estado estado) {
+                         String descripcion, Instant fecha, Estado estado,
+                         String respuestaAdmin, Instant fechaActualizacion) {
     public enum Estado {
-        PENDIENTE, RESUELTA
+        PENDIENTE, EN_REVISION, RESUELTA
     }
 }

@@ -125,6 +125,9 @@ class RailwayHttpTests {
             mvc.perform(put("/api/v1/usuarios/me/perfil").header("Authorization", admin)).andExpect(status().isForbidden());
             mvc.perform(put("/api/v1/incidencias/" + ID + "/resolucion").header("Authorization", admin))
                     .andExpect(status().isForbidden());
+            mvc.perform(put("/api/v1/incidencias/" + ID + "/gestion").header("Authorization", admin)
+                    .contentType("application/json").content("{\"estado\":\"EN_REVISION\"}"))
+                    .andExpect(status().isForbidden());
             String cliente = autorizar(RolUsuario.CLIENTE);
             mvc.perform(post("/api/v1/incidencias").header("Authorization", cliente)).andExpect(status().isForbidden());
             mvc.perform(post("/api/v1/contacto").header("Authorization", cliente)).andExpect(status().isForbidden());
@@ -169,5 +172,35 @@ class RailwayHttpTests {
         when(base.getName()).thenReturn("autocarepro");
         assertThrows(IllegalStateException.class,
                 () -> new DemostracionController(new ConfiguracionDemostracion(false, false), conexion));
+    }
+
+    @Nested
+    @TestPropertySource(properties = {"AUTOCARE_DEMO_REGISTRO=true", "AUTOCARE_DEMO_ESCRITURAS=false"})
+    class SoloRegistro {
+        @Test
+        void elRegistroPublicoFuncionaSinAbrirLaAdministracion() throws Exception {
+            when(autenticacion.registrar(any())).thenReturn(
+                    new UsuarioResponseDTO(ID, "Cliente", "cliente@example.test", RolUsuario.CLIENTE));
+            mvc.perform(post("/api/v1/auth/registro").contentType("application/json").content(CUENTA))
+                    .andExpect(status().isCreated()).andExpect(jsonPath("$.rol").value("CLIENTE"));
+            mvc.perform(delete("/api/v1/productos/" + ID).header("Authorization", autorizar(RolUsuario.ADMIN)))
+                    .andExpect(status().isForbidden());
+            verifyNoInteractions(productos);
+        }
+    }
+
+    @Nested
+    @TestPropertySource(properties = {"AUTOCARE_DEMO_REGISTRO=false", "AUTOCARE_DEMO_ESCRITURAS=true"})
+    class SoloEscrituras {
+        @Test
+        void laAdministracionSigueRestringidaAlRolSinAbrirElRegistro() throws Exception {
+            mvc.perform(post("/api/v1/auth/registro").contentType("application/json").content(CUENTA))
+                    .andExpect(status().isUnauthorized());
+            mvc.perform(delete("/api/v1/productos/" + ID).header("Authorization", autorizar(RolUsuario.ADMIN)))
+                    .andExpect(status().isNoContent());
+            mvc.perform(delete("/api/v1/productos/" + ID).header("Authorization", autorizar(RolUsuario.CLIENTE)))
+                    .andExpect(status().isForbidden());
+            verifyNoInteractions(autenticacion);
+        }
     }
 }

@@ -10,6 +10,7 @@ import cl.duoc.autocare.repository.IncidenciaRepository;
 import org.bson.types.ObjectId;
 import org.springframework.context.annotation.Profile;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -42,14 +43,35 @@ public class IncidenciaService {
         ObjectId ordenId = new ObjectId(datos.ordenId());
         ordenes.buscar(ordenId, compradorId);
         return IncidenciaDTO.Respuesta.desde(incidencias.insert(new Incidencia(null, compradorId, ordenId,
-                datos.asunto(), datos.descripcion(), Instant.now(), Incidencia.Estado.PENDIENTE)));
+                datos.asunto(), datos.descripcion(), Instant.now(), Incidencia.Estado.PENDIENTE, null, null)));
     }
 
     public void resolver(ObjectId id) {
-        Query filtro = Query.query(Criteria.where("_id").is(id));
-        if (mongo.updateFirst(filtro, new Update().set("estado", Incidencia.Estado.RESUELTA), Incidencia.class)
-                .getMatchedCount() == 0) {
+        actualizar(id, new IncidenciaDTO.Gestion(Incidencia.Estado.RESUELTA.name(), null));
+    }
+
+    public IncidenciaDTO.Respuesta actualizar(ObjectId id, IncidenciaDTO.Gestion datos) {
+        Incidencia.Estado estado = Incidencia.Estado.valueOf(datos.estado());
+        // El filtro valida el estado actual en la misma operación que guarda el cambio.
+        Criteria criterio = Criteria.where("_id").is(id);
+        switch (estado) {
+            case PENDIENTE -> criterio.and("estado").is(Incidencia.Estado.PENDIENTE);
+            case EN_REVISION -> criterio.and("estado").in(Incidencia.Estado.PENDIENTE, Incidencia.Estado.EN_REVISION);
+            case RESUELTA -> { }
+        }
+        Update cambios = new Update().set("estado", estado).set("fechaActualizacion", Instant.now());
+        if (datos.respuestaAdmin() != null) {
+            if (datos.respuestaAdmin().isEmpty()) cambios.unset("respuestaAdmin");
+            else cambios.set("respuestaAdmin", datos.respuestaAdmin());
+        }
+        Incidencia actualizada = mongo.findAndModify(Query.query(criterio), cambios,
+                FindAndModifyOptions.options().returnNew(true), Incidencia.class);
+        if (actualizada != null) {
+            return IncidenciaDTO.Respuesta.desde(actualizada);
+        }
+        if (!incidencias.existsById(id)) {
             throw new CatalogoException(HttpStatus.NOT_FOUND, "Incidencia no encontrada.");
         }
+        throw new CatalogoException(HttpStatus.CONFLICT, "La incidencia no puede volver a un estado anterior.");
     }
 }

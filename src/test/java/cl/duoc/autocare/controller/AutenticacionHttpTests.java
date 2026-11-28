@@ -10,6 +10,8 @@ import cl.duoc.autocare.config.SeguridadConfig;
 import cl.duoc.autocare.dto.OrdenRequestDTO;
 import cl.duoc.autocare.dto.ClienteAdminDTO;
 import cl.duoc.autocare.dto.IncidenciaDTO;
+import cl.duoc.autocare.dto.ProductoResponseDTO;
+import cl.duoc.autocare.exception.CatalogoException;
 import cl.duoc.autocare.model.Incidencia;
 import cl.duoc.autocare.service.ContactoService;
 import cl.duoc.autocare.service.IncidenciaService;
@@ -39,6 +41,7 @@ import org.springframework.data.mongodb.core.index.IndexInfo;
 import org.springframework.data.mongodb.core.index.IndexOperations;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -213,11 +216,15 @@ class AutenticacionHttpTests {
         mvc.perform(get("/api/v1/productos")).andExpect(status().isOk());
         mvc.perform(get("/api/v1/productos/" + PRODUCTO)).andExpect(status().isOk());
         mvc.perform(get("/api/v1/categorias")).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/categorias/" + PRODUCTO)).andExpect(status().isOk());
         mvc.perform(get(ME)).andExpect(status().isUnauthorized());
         mvc.perform(get(ORDENES + "/" + ORDEN)).andExpect(status().isUnauthorized());
         mvc.perform(post(ORDENES)).andExpect(status().isUnauthorized());
         mvc.perform(delete("/api/v1/productos/" + PRODUCTO)).andExpect(status().isUnauthorized());
-        verifyNoInteractions(ordenes);
+        mvc.perform(get("/api/v1/usuarios")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/incidencias")).andExpect(status().isUnauthorized());
+        mvc.perform(put("/api/v1/incidencias/" + ORDEN + "/gestion")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(ordenes, clientes, incidencias);
     }
 
     @Test
@@ -240,13 +247,16 @@ class AutenticacionHttpTests {
     @Test
     void vendedorLeeOrdenesYElRolVigenteDeMongoPrevaleceSobreElClaim() throws Exception {
         autorizar(RolUsuario.VENDEDOR);
+        var precio = java.math.BigDecimal.valueOf(4000);
+        when(productos.buscar(PRODUCTO)).thenReturn(new ProductoResponseDTO(PRODUCTO.toHexString(), "SKU-PRUEBA", "Filtro",
+                "", precio, java.math.BigDecimal.ZERO, precio, 8, 2, "", PRODUCTO.toHexString(), "Filtros"));
         when(ordenes.buscar(ORDEN, null)).thenReturn(new OrdenResponseDTO(ORDEN.toHexString(), Instant.now(),
                 Orden.Estado.PROCESANDO, List.of(), java.math.BigDecimal.ZERO,
                 new Orden.Entrega("Cliente de prueba", "cliente@example.test", "900000000", "Santiago", "Calle de prueba", "Envío estándar")));
         mvc.perform(get(ME).header(HttpHeaders.AUTHORIZATION, tokenVigente()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.rol").value("VENDEDOR"));
         mvc.perform(get("/api/v1/productos/" + PRODUCTO).header(HttpHeaders.AUTHORIZATION, tokenVigente()))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk()).andExpect(jsonPath("$.stock").value(8));
         mvc.perform(get(ORDENES).header(HttpHeaders.AUTHORIZATION, tokenVigente())).andExpect(status().isOk());
         mvc.perform(get(ORDENES + "/" + ORDEN).header(HttpHeaders.AUTHORIZATION, tokenVigente()))
                 .andExpect(status().isOk())
@@ -260,7 +270,9 @@ class AutenticacionHttpTests {
             "POST,/api/v1/categorias", "PUT,/api/v1/categorias/{id}", "DELETE,/api/v1/categorias/{id}",
             "POST,/api/v1/ordenes", "PUT,/api/v1/ordenes/{id}", "PUT,/api/v1/ordenes/{id}/envio",
             "GET,/api/v1/usuarios", "GET,/api/v1/usuarios/{id}/ordenes", "PUT,/api/v1/usuarios/me/perfil",
-            "GET,/api/v1/incidencias", "POST,/api/v1/incidencias", "POST,/api/v1/contacto", "DELETE,/api/v1/usuarios/{id}"})
+            "GET,/api/v1/incidencias", "POST,/api/v1/incidencias", "POST,/api/v1/contacto", "DELETE,/api/v1/usuarios/{id}",
+            "GET,/api/v1/usuarios/{id}", "POST,/api/v1/usuarios", "PUT,/api/v1/usuarios/{id}",
+            "PUT,/api/v1/incidencias/{id}/gestion", "PUT,/api/v1/incidencias/{id}/resolucion"})
     void bloqueaLasEscriturasParaVendedor(String metodo, String ruta) throws Exception {
         autorizar(RolUsuario.VENDEDOR);
         mvc.perform(request(HttpMethod.valueOf(metodo), ruta.replace("{id}", PRODUCTO.toHexString()))
@@ -295,6 +307,44 @@ class AutenticacionHttpTests {
 
 
     @Test
+    void clienteRecibe404ParaUnaOrdenAjena() throws Exception {
+        autorizar(RolUsuario.CLIENTE);
+        when(ordenes.buscar(ORDEN, CUENTA)).thenThrow(new CatalogoException(HttpStatus.NOT_FOUND, "Orden no encontrada."));
+        mvc.perform(get(ORDENES + "/" + ORDEN).header(HttpHeaders.AUTHORIZATION, tokenVigente()))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.entrega").doesNotExist());
+        verify(ordenes).buscar(ORDEN, CUENTA);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"POST,/api/v1/productos", "PUT,/api/v1/productos/{id}", "DELETE,/api/v1/productos/{id}",
+            "POST,/api/v1/categorias", "PUT,/api/v1/categorias/{id}", "DELETE,/api/v1/categorias/{id}",
+            "POST,/api/v1/usuarios", "PUT,/api/v1/usuarios/{id}", "PUT,/api/v1/ordenes/{id}/envio"})
+    void clienteNoEjecutaMutacionesAdministrativas(String metodo, String ruta) throws Exception {
+        autorizar(RolUsuario.CLIENTE);
+        mvc.perform(request(HttpMethod.valueOf(metodo), ruta.replace("{id}", PRODUCTO.toHexString()))
+                        .header(HttpHeaders.AUTHORIZATION, tokenVigente()))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(ordenes, productos, categorias, clientes);
+    }
+
+    @Test
+    void editarPerfilSoloEntregaDatosDePerfilYLaIdentidadDelJwtAlServicio() throws Exception {
+        autorizar(RolUsuario.CLIENTE);
+        var datos = new ClienteAdminDTO.Datos("Ana", "", "ana@example.test", "", "", "");
+        when(clientes.editarPerfil(CUENTA, datos)).thenReturn(
+                new ClienteAdminDTO.Respuesta(CUENTA.toHexString(), "Ana", "", "ana@example.test", "", "", ""));
+        mvc.perform(put("/api/v1/usuarios/me/perfil").header(HttpHeaders.AUTHORIZATION, tokenVigente())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                            {"nombre":"Ana","correo":"ana@example.test","rol":"ADMIN","activo":true}
+                            """))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.rol").doesNotExist())
+                .andExpect(jsonPath("$.contrasenaHash").doesNotExist()).andExpect(jsonPath("$.contrasena").doesNotExist());
+        verify(clientes).editarPerfil(CUENTA, datos);
+        mvc.perform(get(ME).header(HttpHeaders.AUTHORIZATION, tokenVigente()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.rol").value("CLIENTE"));
+    }
+
+    @Test
     void adminGestionaClientesYMarcaOrdenEnviada() throws Exception {
         autorizar(RolUsuario.ADMIN);
         var cliente = new ClienteAdminDTO.Respuesta(CUENTA.toHexString(), "Ana", "Díaz", "ana@example.test",
@@ -324,7 +374,7 @@ class AutenticacionHttpTests {
         autorizar(RolUsuario.CLIENTE);
         when(incidencias.crear(any(), eq(CUENTA))).thenReturn(new IncidenciaDTO.Respuesta(
                 new ObjectId().toHexString(), ORDEN.toHexString(), "Despacho", "Revisar orden", Instant.now(),
-                Incidencia.Estado.PENDIENTE));
+                Incidencia.Estado.PENDIENTE, null, null));
         String ruta = "/api/v1/incidencias";
         mvc.perform(post(ruta).header(HttpHeaders.AUTHORIZATION, tokenVigente()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ordenId\":\"" + ORDEN + "\",\"asunto\":\"Despacho\",\"descripcion\":\"Revisar orden\"}"))
@@ -333,6 +383,9 @@ class AutenticacionHttpTests {
         verify(incidencias).listar(CUENTA);
         mvc.perform(put(ruta + "/" + ORDEN + "/resolucion").header(HttpHeaders.AUTHORIZATION, tokenVigente()))
                 .andExpect(status().isForbidden());
+        mvc.perform(put(ruta + "/" + ORDEN + "/gestion").header(HttpHeaders.AUTHORIZATION, tokenVigente())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"estado\":\"EN_REVISION\"}"))
+                .andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/usuarios").header(HttpHeaders.AUTHORIZATION, tokenVigente()))
                 .andExpect(status().isForbidden());
         mvc.perform(put(ORDENES + "/" + ORDEN + "/envio").header(HttpHeaders.AUTHORIZATION, tokenVigente()))
@@ -340,6 +393,38 @@ class AutenticacionHttpTests {
         mvc.perform(get("/api/v1/usuarios/me/perfil").header(HttpHeaders.AUTHORIZATION, tokenVigente()))
                 .andExpect(status().isOk());
         verify(clientes).perfil(CUENTA);
+    }
+
+    @Test
+    void soloAdminPuedeGestionarIncidenciasConUnEstadoValido() throws Exception {
+        String ruta = "/api/v1/incidencias/" + ORDEN + "/gestion";
+        String datos = "{\"estado\":\"EN_REVISION\",\"respuestaAdmin\":\" Gracias por avisar. \"}";
+        mvc.perform(put(ruta).contentType(MediaType.APPLICATION_JSON).content(datos))
+                .andExpect(status().isUnauthorized());
+        autorizar(RolUsuario.VENDEDOR);
+        mvc.perform(get("/api/v1/incidencias").header(HttpHeaders.AUTHORIZATION, tokenVigente()))
+                .andExpect(status().isForbidden());
+        mvc.perform(put(ruta).header(HttpHeaders.AUTHORIZATION, tokenVigente())
+                        .contentType(MediaType.APPLICATION_JSON).content(datos))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(incidencias);
+
+        autorizar(RolUsuario.ADMIN);
+        when(incidencias.actualizar(eq(ORDEN), any())).thenReturn(new IncidenciaDTO.Respuesta(
+                ORDEN.toHexString(), ORDEN.toHexString(), "Despacho", "Revisar orden", Instant.EPOCH,
+                Incidencia.Estado.EN_REVISION, "Gracias por avisar.", Instant.EPOCH));
+        mvc.perform(put(ruta).header(HttpHeaders.AUTHORIZATION, tokenVigente())
+                        .contentType(MediaType.APPLICATION_JSON).content(datos))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.estado").value("EN_REVISION"))
+                .andExpect(jsonPath("$.respuestaAdmin").value("Gracias por avisar."))
+                .andExpect(jsonPath("$.fechaActualizacion").exists());
+        verify(incidencias).actualizar(ORDEN, new IncidenciaDTO.Gestion("EN_REVISION", "Gracias por avisar."));
+        for (String invalido : List.of("{}", "{\"estado\":\"CERRADA\"}", "{\"estado\":1}",
+                "{\"estado\":\"EN_REVISION\",\"respuestaAdmin\":\"" + "x".repeat(2001) + "\"}")) {
+            mvc.perform(put(ruta).header(HttpHeaders.AUTHORIZATION, tokenVigente())
+                            .contentType(MediaType.APPLICATION_JSON).content(invalido))
+                    .andExpect(status().isBadRequest());
+        }
     }
 
     @Test

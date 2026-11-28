@@ -58,6 +58,7 @@ public class SeguridadConfig {
         private static final String CONTACTO = "/api/v1/contacto";
         private static final String INCIDENCIAS = "/api/v1/incidencias";
         private static final String RESOLUCION_INCIDENCIA = INCIDENCIAS + "/{id}/resolucion";
+        private static final String GESTION_INCIDENCIA = INCIDENCIAS + "/{id}/gestion";
 
         @Bean
         @Profile({"catalogo-local", "railway"})
@@ -80,7 +81,8 @@ public class SeguridadConfig {
                     if (!demostracion.escrituras()) {
                         reglas.requestMatchers(CATALOGO).denyAll()
                                 .requestMatchers(HttpMethod.POST, ORDENES, USUARIOS, INCIDENCIAS, CONTACTO).denyAll()
-                                .requestMatchers(HttpMethod.PUT, ENVIO_ORDEN, DETALLE_USUARIO, RESOLUCION_INCIDENCIA, PERFIL).denyAll();
+                                .requestMatchers(HttpMethod.PUT, ENVIO_ORDEN, DETALLE_USUARIO, RESOLUCION_INCIDENCIA,
+                                        GESTION_INCIDENCIA, PERFIL).denyAll();
                     }
                 } else {
                     reglas.requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").permitAll();
@@ -92,7 +94,8 @@ public class SeguridadConfig {
                         .requestMatchers(HttpMethod.POST, ORDENES).hasAnyRole("ADMIN", "CLIENTE")
                         .requestMatchers(HttpMethod.GET, USUARIOS, DETALLE_USUARIO, DETALLE_USUARIO + "/ordenes").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, USUARIOS).hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PUT, ENVIO_ORDEN, DETALLE_USUARIO, RESOLUCION_INCIDENCIA).hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, ENVIO_ORDEN, DETALLE_USUARIO, RESOLUCION_INCIDENCIA,
+                                GESTION_INCIDENCIA).hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, INCIDENCIAS).hasAnyRole("ADMIN", "CLIENTE")
                         .requestMatchers(HttpMethod.POST, INCIDENCIAS).hasRole("CLIENTE")
                         .requestMatchers(HttpMethod.GET, PERFIL).hasAnyRole("CLIENTE", "ADMIN")

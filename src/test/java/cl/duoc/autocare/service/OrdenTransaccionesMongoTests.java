@@ -21,6 +21,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.index.Index;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import cl.duoc.autocare.dto.OrdenRequestDTO.ProductoSolicitado;
 import cl.duoc.autocare.exception.CatalogoException;
 import cl.duoc.autocare.model.Orden;
@@ -43,6 +44,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -188,8 +191,30 @@ class OrdenTransaccionesMongoTests {
         assertEquals(Incidencia.Estado.PENDIENTE, creada.estado());
         assertTrue(incidencias.listar(otraCuenta).isEmpty());
         assertEquals(creada.id(), incidencias.listar(duenio).getFirst().id());
-        incidencias.resolver(new ObjectId(creada.id()));
-        assertEquals(Incidencia.Estado.RESUELTA, incidencias.listar(duenio).getFirst().estado());
+        ObjectId id = new ObjectId(creada.id());
+        // Simula un documento guardado antes de incorporar los campos opcionales.
+        mongo.updateFirst(Query.query(Criteria.where("_id").is(id)),
+                new Update().unset("respuestaAdmin").unset("fechaActualizacion"), Incidencia.class);
+        assertNull(incidencias.listar(duenio).getFirst().respuestaAdmin());
+        assertNull(incidencias.listar(duenio).getFirst().fechaActualizacion());
+        incidencias.actualizar(id, new IncidenciaDTO.Gestion("EN_REVISION", "En consulta."));
+        assertEquals(Incidencia.Estado.EN_REVISION, incidencias.listar(duenio).getFirst().estado());
+        assertEquals("En consulta.", incidencias.listar(duenio).getFirst().respuestaAdmin());
+        assertNotNull(incidencias.listar(duenio).getFirst().fechaActualizacion());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(CatalogoException.class,
+                () -> incidencias.actualizar(id, new IncidenciaDTO.Gestion("PENDIENTE", null))).estado());
+        incidencias.resolver(id);
+        var resuelta = incidencias.listar(duenio).getFirst();
+        assertEquals(Incidencia.Estado.RESUELTA, resuelta.estado());
+        assertEquals("En consulta.", resuelta.respuestaAdmin());
+        incidencias.actualizar(id, new IncidenciaDTO.Gestion("RESUELTA", "Consulta finalizada."));
+        assertEquals("Consulta finalizada.", incidencias.listar(duenio).getFirst().respuestaAdmin());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(CatalogoException.class,
+                () -> incidencias.actualizar(id, new IncidenciaDTO.Gestion("EN_REVISION", null))).estado());
+        incidencias.actualizar(id, new IncidenciaDTO.Gestion("RESUELTA", ""));
+        assertNull(incidencias.listar(duenio).getFirst().respuestaAdmin());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(CatalogoException.class,
+                () -> incidencias.actualizar(new ObjectId(), new IncidenciaDTO.Gestion("EN_REVISION", null))).estado());
     }
 
     @Test

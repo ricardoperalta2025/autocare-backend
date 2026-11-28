@@ -50,7 +50,7 @@ public class OrdenController {
     }
 
     @Operation(summary = "Registrar una compra simulada",
-            description = "Envía los productos y cantidades. El checkout conectado incluye los datos de entrega. Reutiliza Idempotency-Key con el mismo cuerpo.",
+            description = "ADMIN o CLIENTE. Reutiliza Idempotency-Key con el mismo cuerpo. En Railway requiere escrituras habilitadas.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(
                     mediaType = "application/json", examples = @ExampleObject(name = "orden", value = """
                     {"productos": [{"productoId": "660000000000000000000001", "cantidad": 2}]}
@@ -61,12 +61,12 @@ public class OrdenController {
     @ApiResponse(responseCode = "400", ref = "#/components/responses/DatosInvalidos")
     @ApiResponse(responseCode = "404", ref = "#/components/responses/RecursoNoEncontrado")
     @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictoOrden")
-    @ApiResponse(responseCode = "401", description = "Se requiere un JWT válido.")
-    @ApiResponse(responseCode = "403", description = "Rol sin permiso de compra o clave de otro comprador.")
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/SesionRequerida")
+    @ApiResponse(responseCode = "403", description = "Rol sin permiso, escrituras cerradas o clave de otro comprador.")
     @ApiResponse(responseCode = "503", ref = "#/components/responses/CompraSinConfirmacion")
     @PostMapping
     public ResponseEntity<OrdenResponseDTO> crear(
-            @Parameter(required = true, description = "Clave del intento. Debe reutilizarse con los mismos productos y cantidades.",
+            @Parameter(required = true, description = "Clave del intento. Debe reutilizarse con los mismos productos, cantidades y datos de entrega.",
                     schema = @Schema(type = "string", pattern = "^[0-9a-fA-F]{24}$"), example = "660000000000000000000007")
             @RequestHeader(name = CABECERA_IDEMPOTENCIA, required = false) String clave,
             @Valid @RequestBody OrdenRequestDTO solicitud,
@@ -79,10 +79,11 @@ public class OrdenController {
         return ResponseEntity.created(URI.create(RUTA + "/" + orden.id())).body(orden.sinEntrega());
     }
 
-    @Operation(summary = "Consultar una orden por ID")
+    @Operation(summary = "Consultar una orden por ID", description = "ADMIN, VENDEDOR o CLIENTE. CLIENTE consulta solo las propias. El detalle que recibe VENDEDOR carece de datos de entrega. La interfaz usa esta consulta para el comprobante.")
     @ApiResponse(responseCode = "200", description = "Detalle de la orden.", useReturnTypeSchema = true)
     @ApiResponse(responseCode = "400", ref = "#/components/responses/DatosInvalidos")
     @ApiResponse(responseCode = "404", ref = "#/components/responses/RecursoNoEncontrado")
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/SesionRequerida")
     @GetMapping("/{id}")
     public OrdenResponseDTO buscar(@Parameter(ref = "#/components/parameters/IdCatalogo") @PathVariable ObjectId id,
                                    @AuthenticationPrincipal UsuarioResponseDTO usuario) {
@@ -90,16 +91,23 @@ public class OrdenController {
         return usuario.rol() == RolUsuario.VENDEDOR ? orden.sinEntrega() : orden;
     }
 
-    @Operation(summary = "Listar órdenes de la más reciente a la más antigua")
+    @Operation(summary = "Listar órdenes de la más reciente a la más antigua", description = "ADMIN y VENDEDOR consultan todas. CLIENTE consulta solo las propias. El listado omite la entrega.")
     @ApiResponse(responseCode = "200", description = "Listado de órdenes.", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/SesionRequerida")
     @GetMapping
     public List<OrdenResponseDTO> listar(@AuthenticationPrincipal UsuarioResponseDTO usuario) {
         return ordenes.listar(filtrarPorCliente(usuario));
     }
 
-    @Operation(summary = "Marcar una orden como enviada")
+    @Operation(summary = "Marcar una orden como enviada", description = "Solo ADMIN. Cambia de PROCESANDO a ENVIADO. Una orden ya enviada devuelve 204. En Railway requiere escrituras habilitadas.")
+    @ApiResponse(responseCode = "204", description = "Orden enviada o ya enviada.", content = @Content)
+    @ApiResponse(responseCode = "400", ref = "#/components/responses/DatosInvalidos")
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/SesionRequerida")
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/PermisoInsuficiente")
+    @ApiResponse(responseCode = "404", ref = "#/components/responses/RecursoNoEncontrado")
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/EstadoIncompatible")
     @PutMapping("/{id}/envio")
-    public ResponseEntity<Void> marcarEnviada(@PathVariable ObjectId id) {
+    public ResponseEntity<Void> marcarEnviada(@Parameter(ref = "#/components/parameters/IdCatalogo") @PathVariable ObjectId id) {
         ordenes.marcarEnviada(id);
         return ResponseEntity.noContent().build();
     }

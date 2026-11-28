@@ -1,6 +1,7 @@
 package cl.duoc.autocare.dto;
 
 import cl.duoc.autocare.model.Usuario;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -11,6 +12,7 @@ public final class ClienteAdminDTO {
     private ClienteAdminDTO() {
     }
 
+    @Schema(name = "DatosCliente")
     public record Datos(
             @NotBlank @Size(max = 100) String nombre,
             @Size(max = 100) String apellido,
@@ -37,13 +39,16 @@ public final class ClienteAdminDTO {
         }
     }
 
-    public record Alta(@NotNull @Valid Datos datos, @NotBlank @Size(min = 8, max = 72) String contrasena) {
+    @Schema(name = "AltaCliente")
+    public record Alta(@NotNull @Valid Datos datos,
+                       @Schema(format = "password") @NotBlank @Size(min = 8, max = 72) String contrasena) {
         @Override
         public String toString() {
             return "Alta[datos de registro protegidos]";
         }
     }
 
+    @Schema(name = "RespuestaCliente")
     public record Respuesta(String id, String nombre, String apellido, String correo, String telefono,
                             String comuna, String direccion) {
         public static Respuesta desde(Usuario usuario) {

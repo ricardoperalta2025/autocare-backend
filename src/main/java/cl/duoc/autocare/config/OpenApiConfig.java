@@ -39,6 +39,11 @@ public class OpenApiConfig {
                         .addProperty("instance", new StringSchema().format("uri-reference"))
                         .addProperty("campos", new MapSchema().additionalProperties(new StringSchema())
                                 .description("Mensajes por campo cuando falla la validación.")))
+                .addResponses("SesionRequerida", new ApiResponse().description("Falta un JWT válido de una cuenta activa."))
+                .addResponses("PermisoInsuficiente", new ApiResponse().description("El rol no tiene permiso o la escritura está deshabilitada."))
+                .addResponses("CorreoDuplicado", respuestaError("Ya existe una cuenta con ese correo."))
+                .addResponses("IndiceCorreoNoDisponible", respuestaError("El índice único de correo no está disponible."))
+                .addResponses("EstadoIncompatible", respuestaError("El estado actual no permite la transición solicitada."))
                 .addResponses("DatosInvalidos", respuestaError("La solicitud contiene datos o identificadores inválidos."))
                 .addResponses("RecursoNoEncontrado", respuestaError("El recurso solicitado no existe."))
                 .addResponses("ConflictoCatalogo", respuestaError("La operación entra en conflicto con los datos del catálogo."))
@@ -47,7 +52,17 @@ public class OpenApiConfig {
 
         return new OpenAPI()
                 .info(new Info().title("AutoCarePro API").version("1.0")
-                        .description("API REST de productos, categorías y compras simuladas de AutoCarePro."))
+                        .description("""
+                                API REST v1 de AutoCarePro. En catalogo-local la documentación incluye catálogo,
+                                autenticación, clientes, órdenes, incidencias y contacto. Usa Authorize con el JWT
+                                obtenido en /api/v1/auth/login. Un Bearer inválido puede provocar HTTP 401 incluso
+                                en una operación pública.
+
+                                Railway añade GET /api/v1/configuracion y GET /api/v1/salud/mongodb.
+                                El perfil verificar-mongodb expone solo la comprobación de conexión.
+                                Swagger se habilita únicamente en catalogo-local. Los HEAD permitidos
+                                de catálogo y órdenes derivan de sus GET.
+                                """))
                 .components(componentes);
     }
 

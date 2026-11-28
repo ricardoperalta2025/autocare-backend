@@ -33,7 +33,7 @@ public class AuthController {
         this.autenticacion = autenticacion;
     }
 
-    @Operation(summary = "Registrar una cuenta de cliente")
+    @Operation(summary = "Registrar una cuenta de cliente", description = "Pública. Siempre crea el rol CLIENTE. En Railway requiere que el registro público esté habilitado.")
     @ApiResponse(responseCode = "201", description = "Cliente registrado.", useReturnTypeSchema = true)
     @ApiResponse(responseCode = "400", description = "Datos inválidos.")
     @ApiResponse(responseCode = "409", description = "Correo duplicado.")

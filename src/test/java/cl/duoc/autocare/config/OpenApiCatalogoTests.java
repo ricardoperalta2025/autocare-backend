@@ -61,11 +61,11 @@ class OpenApiCatalogoTests {
                     "/api/v1/auth/login", "/api/v1/auth/me", "/api/v1/ordenes/{id}/envio",
                     "/api/v1/usuarios", "/api/v1/usuarios/{id}", "/api/v1/usuarios/{id}/ordenes",
                     "/api/v1/usuarios/me/perfil", "/api/v1/incidencias", "/api/v1/incidencias/{id}/resolucion",
-                    "/api/v1/contacto"),
+                    "/api/v1/incidencias/{id}/gestion", "/api/v1/contacto"),
                     Set.copyOf(documento.path("paths").propertyNames()));
 
-            verificarRecurso(documento, "productos", "Producto", "Productos", Set.of("204", "400", "404"));
-            verificarRecurso(documento, "categorias", "Categoria", "Categorías", Set.of("204", "400", "404", "409"));
+            verificarRecurso(documento, "productos", "Producto", "Productos", Set.of("204", "400", "401", "403", "404"));
+            verificarRecurso(documento, "categorias", "Categoria", "Categorías", Set.of("204", "400", "401", "403", "404", "409"));
             assertEquals("ACE-PRUEBA", documento.path("paths").path("/api/v1/productos")
                     .at("/post/requestBody/content/application~1json/examples/producto/value/codigo").asString());
             assertEquals("Aceites de motor", documento.path("paths").path("/api/v1/categorias")
@@ -104,6 +104,82 @@ class OpenApiCatalogoTests {
                     coleccion.at("/post/responses/201/content/application~1json/schema/$ref").asString());
             assertEquals("number", documento.at("/components/schemas/OrdenResponseDTO/properties/total/type").asString());
             assertEquals(2, coleccion.at("/post/requestBody/content/application~1json/examples/orden/value/productos/0/cantidad").asInt());
+        }
+
+        @Test
+        void documentaElEstadoHttpYLaAutenticacionDeCadaOperacionLocal() throws Exception {
+            JsonNode rutas = JSON.readTree(consultar(puerto, "/v3/api-docs").body()).path("paths");
+            String contrato = """
+                    post /api/v1/auth/registro 201,400,409,503 publica
+                    post /api/v1/auth/login 200,400,401 publica
+                    get /api/v1/auth/me 200,401 privada
+                    get /api/v1/productos 200,409 publica
+                    get /api/v1/productos/{id} 200,400,404,409 publica
+                    post /api/v1/productos 201,400,401,403,409 privada
+                    put /api/v1/productos/{id} 200,400,401,403,404,409 privada
+                    delete /api/v1/productos/{id} 204,400,401,403,404 privada
+                    get /api/v1/categorias 200 publica
+                    get /api/v1/categorias/{id} 200,400,404 publica
+                    post /api/v1/categorias 201,400,401,403,409 privada
+                    put /api/v1/categorias/{id} 200,400,401,403,404,409 privada
+                    delete /api/v1/categorias/{id} 204,400,401,403,404,409 privada
+                    get /api/v1/usuarios 200,401,403 privada
+                    get /api/v1/usuarios/{id} 200,400,401,403,404 privada
+                    get /api/v1/usuarios/{id}/ordenes 200,400,401,403,404 privada
+                    post /api/v1/usuarios 201,400,401,403,409,503 privada
+                    put /api/v1/usuarios/{id} 200,400,401,403,404,409,503 privada
+                    get /api/v1/usuarios/me/perfil 200,401,403,404 privada
+                    put /api/v1/usuarios/me/perfil 200,400,401,403,404,409,503 privada
+                    get /api/v1/ordenes 200,401 privada
+                    get /api/v1/ordenes/{id} 200,400,401,404 privada
+                    post /api/v1/ordenes 201,400,401,403,404,409,503 privada
+                    put /api/v1/ordenes/{id}/envio 204,400,401,403,404,409 privada
+                    get /api/v1/incidencias 200,401,403 privada
+                    post /api/v1/incidencias 201,400,401,403,404 privada
+                    put /api/v1/incidencias/{id}/resolucion 204,400,401,403,404 privada
+                    put /api/v1/incidencias/{id}/gestion 200,400,401,403,404,409 privada
+                    post /api/v1/contacto 204,400,401,403 privada
+                    """;
+            var filas = contrato.lines().toList();
+            int operaciones = 0;
+            for (String ruta : rutas.propertyNames()) {
+                operaciones += rutas.path(ruta).size();
+            }
+            assertEquals(filas.size(), operaciones);
+            for (String fila : filas) {
+                String[] partes = fila.split(" ");
+                JsonNode operacion = rutas.path(partes[1]).path(partes[0]);
+                assertEquals(Set.of(partes[2].split(",")), Set.copyOf(operacion.path("responses").propertyNames()), fila);
+                boolean privada = partes[3].equals("privada");
+                assertEquals(privada, operacion.at("/security/0").has("bearerAuth"), fila);
+                if (partes[1].contains("{id}")) {
+                    assertEquals("#/components/parameters/IdCatalogo", operacion.at("/parameters/0/$ref").asString(), fila);
+                }
+                if (operacion.path("responses").has("204")) {
+                    assertFalse(operacion.at("/responses/204").has("content"), fila);
+                }
+            }
+        }
+
+        @Test
+        void distingueLosEsquemasPrivadosDeClientesEIncidencias() throws Exception {
+            JsonNode documento = JSON.readTree(consultar(puerto, "/v3/api-docs").body());
+            JsonNode rutas = documento.path("paths");
+            JsonNode clientes = rutas.path("/api/v1/usuarios").path("post");
+            assertEquals("#/components/schemas/AltaCliente", clientes.at("/requestBody/content/application~1json/schema/$ref").asString());
+            assertEquals("#/components/schemas/RespuestaCliente", clientes.at("/responses/201/content/application~1json/schema/$ref").asString());
+            assertTrue(clientes.at("/responses/201/headers").has("Location"));
+            JsonNode gestion = rutas.path("/api/v1/incidencias/{id}/gestion").path("put");
+            assertEquals("#/components/schemas/GestionIncidencia", gestion.at("/requestBody/content/application~1json/schema/$ref").asString());
+            assertEquals("#/components/schemas/RespuestaIncidencia", gestion.at("/responses/200/content/application~1json/schema/$ref").asString());
+            JsonNode esquemas = documento.at("/components/schemas");
+            assertEquals(3, esquemas.at("/GestionIncidencia/properties/estado/enum").size());
+            assertEquals(2000, esquemas.at("/GestionIncidencia/properties/respuestaAdmin/maxLength").asInt());
+            assertTrue(esquemas.at("/RespuestaIncidencia/properties").has("respuestaAdmin"));
+            assertEquals("date-time", esquemas.at("/RespuestaIncidencia/properties/fechaActualizacion/format").asString());
+            assertFalse(esquemas.at("/RespuestaCliente/properties").has("contrasenaHash"));
+            assertFalse(esquemas.at("/RespuestaCliente/properties").has("contrasena"));
+            assertFalse(rutas.path("/api/v1/incidencias/{id}/resolucion").path("put").has("requestBody"));
         }
 
         @Test
@@ -157,10 +233,12 @@ class OpenApiCatalogoTests {
         assertEquals(Set.of("get", "put", "delete"), Set.copyOf(detalle.propertyNames()));
         assertEquals(etiqueta, coleccion.at("/get/tags/0").asString());
 
-        assertEquals(Set.of("200"), Set.copyOf(coleccion.at("/get/responses").propertyNames()));
-        assertEquals(Set.of("201", "400", "409"), Set.copyOf(coleccion.at("/post/responses").propertyNames()));
-        assertEquals(Set.of("200", "400", "404"), Set.copyOf(detalle.at("/get/responses").propertyNames()));
-        assertEquals(Set.of("200", "400", "404", "409"), Set.copyOf(detalle.at("/put/responses").propertyNames()));
+        boolean productos = recurso.equals("productos");
+        assertEquals(productos ? Set.of("200", "409") : Set.of("200"), Set.copyOf(coleccion.at("/get/responses").propertyNames()));
+        assertEquals(Set.of("201", "400", "401", "403", "409"), Set.copyOf(coleccion.at("/post/responses").propertyNames()));
+        assertEquals(productos ? Set.of("200", "400", "404", "409") : Set.of("200", "400", "404"),
+                Set.copyOf(detalle.at("/get/responses").propertyNames()));
+        assertEquals(Set.of("200", "400", "401", "403", "404", "409"), Set.copyOf(detalle.at("/put/responses").propertyNames()));
         assertEquals(codigosEliminar, Set.copyOf(detalle.at("/delete/responses").propertyNames()));
         assertFalse(detalle.at("/delete/responses/204").has("content"));
         assertEquals("#/components/parameters/IdCatalogo", detalle.at("/get/parameters/0/$ref").asString());

@@ -43,6 +43,7 @@ public class ProductoController {
 
     @Operation(summary = "Listar productos")
     @ApiResponse(responseCode = "200", description = "Listado de productos.", useReturnTypeSchema = true)
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictoCatalogo")
     @GetMapping
     public List<ProductoResponseDTO> listar() {
         return productos.listar();
@@ -52,12 +53,13 @@ public class ProductoController {
     @ApiResponse(responseCode = "200", description = "Detalle del producto.", useReturnTypeSchema = true)
     @ApiResponse(responseCode = "400", ref = "#/components/responses/DatosInvalidos")
     @ApiResponse(responseCode = "404", ref = "#/components/responses/RecursoNoEncontrado")
+    @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictoCatalogo")
     @GetMapping("/{id}")
     public ProductoResponseDTO buscar(@Parameter(ref = "#/components/parameters/IdCatalogo") @PathVariable ObjectId id) {
         return productos.buscar(id);
     }
 
-    @Operation(summary = "Crear producto", description = "El código debe ser único y la categoría asociada debe existir.",
+    @Operation(summary = "Crear producto", description = "Solo ADMIN. El código debe ser único y la categoría debe existir. En Railway requiere escrituras habilitadas.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(
                     mediaType = "application/json", examples = @ExampleObject(name = "producto", value = """
                     {
@@ -74,18 +76,22 @@ public class ProductoController {
     @ApiResponse(responseCode = "400", ref = "#/components/responses/DatosInvalidos")
     @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictoCatalogo")
     @SecurityRequirement(name = "bearerAuth")
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/SesionRequerida")
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/PermisoInsuficiente")
     @PostMapping
     public ResponseEntity<ProductoResponseDTO> crear(@Valid @RequestBody ProductoRequestDTO datos) {
         ProductoResponseDTO producto = productos.crear(datos);
         return ResponseEntity.created(URI.create(RUTA + "/" + producto.id())).body(producto);
     }
 
-    @Operation(summary = "Actualizar producto", description = "Actualiza los datos permitidos. Si se omite el descuento, conserva el vigente.")
+    @Operation(summary = "Actualizar producto", description = "Solo ADMIN. El descuento omitido conserva el vigente. En Railway requiere escrituras habilitadas.")
     @ApiResponse(responseCode = "200", description = "Producto actualizado.", useReturnTypeSchema = true)
     @ApiResponse(responseCode = "400", ref = "#/components/responses/DatosInvalidos")
     @ApiResponse(responseCode = "404", ref = "#/components/responses/RecursoNoEncontrado")
     @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictoCatalogo")
     @SecurityRequirement(name = "bearerAuth")
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/SesionRequerida")
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/PermisoInsuficiente")
     @PutMapping("/{id}")
     public ProductoResponseDTO actualizar(
             @Parameter(ref = "#/components/parameters/IdCatalogo") @PathVariable ObjectId id,
@@ -93,11 +99,13 @@ public class ProductoController {
         return productos.actualizar(id, datos);
     }
 
-    @Operation(summary = "Eliminar producto")
+    @Operation(summary = "Eliminar producto", description = "Solo ADMIN. En Railway requiere escrituras habilitadas.")
     @ApiResponse(responseCode = "204", description = "Producto eliminado.", content = @Content)
     @ApiResponse(responseCode = "400", ref = "#/components/responses/DatosInvalidos")
     @ApiResponse(responseCode = "404", ref = "#/components/responses/RecursoNoEncontrado")
     @SecurityRequirement(name = "bearerAuth")
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/SesionRequerida")
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/PermisoInsuficiente")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> eliminar(
             @Parameter(ref = "#/components/parameters/IdCatalogo") @PathVariable ObjectId id) {

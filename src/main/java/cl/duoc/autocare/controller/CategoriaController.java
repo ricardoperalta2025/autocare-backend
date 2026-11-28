@@ -57,7 +57,7 @@ public class CategoriaController {
         return categorias.buscar(id);
     }
 
-    @Operation(summary = "Crear categoría", description = "El nombre de la categoría debe ser único.",
+    @Operation(summary = "Crear categoría", description = "Solo ADMIN. El nombre debe ser único. En Railway requiere escrituras habilitadas.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(
                     mediaType = "application/json", examples = @ExampleObject(name = "categoria", value = """
                     {"nombre": "Aceites de motor"}
@@ -67,18 +67,22 @@ public class CategoriaController {
     @ApiResponse(responseCode = "400", ref = "#/components/responses/DatosInvalidos")
     @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictoCatalogo")
     @SecurityRequirement(name = "bearerAuth")
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/SesionRequerida")
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/PermisoInsuficiente")
     @PostMapping
     public ResponseEntity<CategoriaResponseDTO> crear(@Valid @RequestBody CategoriaRequestDTO datos) {
         CategoriaResponseDTO categoria = categorias.crear(datos);
         return ResponseEntity.created(URI.create(RUTA + "/" + categoria.id())).body(categoria);
     }
 
-    @Operation(summary = "Actualizar categoría", description = "Renombra la categoría sin cambiar su identificador.")
+    @Operation(summary = "Actualizar categoría", description = "Solo ADMIN. Conserva el ID. En Railway requiere escrituras habilitadas.")
     @ApiResponse(responseCode = "200", description = "Categoría actualizada.", useReturnTypeSchema = true)
     @ApiResponse(responseCode = "400", ref = "#/components/responses/DatosInvalidos")
     @ApiResponse(responseCode = "404", ref = "#/components/responses/RecursoNoEncontrado")
     @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictoCatalogo")
     @SecurityRequirement(name = "bearerAuth")
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/SesionRequerida")
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/PermisoInsuficiente")
     @PutMapping("/{id}")
     public CategoriaResponseDTO actualizar(
             @Parameter(ref = "#/components/parameters/IdCatalogo") @PathVariable ObjectId id,
@@ -86,12 +90,14 @@ public class CategoriaController {
         return categorias.actualizar(id, datos);
     }
 
-    @Operation(summary = "Eliminar categoría", description = "Solo se puede eliminar una categoría sin productos asociados.")
+    @Operation(summary = "Eliminar categoría", description = "Solo ADMIN. La categoría debe carecer de productos asociados. En Railway requiere escrituras habilitadas.")
     @ApiResponse(responseCode = "204", description = "Categoría eliminada.", content = @Content)
     @ApiResponse(responseCode = "400", ref = "#/components/responses/DatosInvalidos")
     @ApiResponse(responseCode = "404", ref = "#/components/responses/RecursoNoEncontrado")
     @ApiResponse(responseCode = "409", ref = "#/components/responses/ConflictoCatalogo")
     @SecurityRequirement(name = "bearerAuth")
+    @ApiResponse(responseCode = "401", ref = "#/components/responses/SesionRequerida")
+    @ApiResponse(responseCode = "403", ref = "#/components/responses/PermisoInsuficiente")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> eliminar(
             @Parameter(ref = "#/components/parameters/IdCatalogo") @PathVariable ObjectId id) {
